@@ -10,7 +10,6 @@ This project provides a complete implementation of prediction markets using the 
 - **Market Maker Factory**: Factory pattern for creating new prediction markets
 - **Oracle Integration**: Support for Flare Network's FDC oracle system
 - **Multi-chain Support**: Deployment scripts for Flare and Hedera networks
-- **Comprehensive Testing**: Extensive test suite with gas analysis
 
 ## Architecture
 
