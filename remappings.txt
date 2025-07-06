@@ -1,0 +1,6 @@
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+flare-periphery/=lib/flare-periphery-0.1.28/
+forge-std/=lib/forge-std/src/
+halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/
+openzeppelin-contracts/=lib/openzeppelin-contracts/
+@prb/math/=node_modules/@prb/math/
