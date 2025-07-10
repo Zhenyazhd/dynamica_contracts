@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {SD59x18, sd, exp, ln} from "@prb/math/src/SD59x18.sol";
+import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {MarketMaker} from "./SimpleMarketMaker.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title LMSRMarketMaker
@@ -12,18 +12,18 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 contract LMSRMarketMaker is MarketMaker {
     // ============ Constants ============
-    
+
     /// @notice Decimal precision for fixed-point arithmetic
     int256 public constant UNIT_DEC = 1e18;
-    
+
     /// @notice Exponential limit to prevent overflow in price calculations
     SD59x18 public immutable EXP_LIMIT_DEC = sd(1275 * UNIT_DEC / 10);
-    
+
     /// @notice LMSR liquidity parameter (alpha)
     SD59x18 public alpha = sd(3 * UNIT_DEC / 100);
 
     // ============ Constructor ============
-    
+
     /**
      * @notice Constructor for LMSRMarketMaker
      * @param _collateralToken The ERC20 token used as collateral
@@ -32,7 +32,7 @@ contract LMSRMarketMaker is MarketMaker {
     constructor(IERC20 _collateralToken, uint64 _fee) MarketMaker(_collateralToken, _fee) {}
 
     // ============ Public Functions ============
-    
+
     /**
      * @notice Calculate delta for 2-outcome market to achieve target price for outcome 0
      * @param q0 Current quantity of outcome 0 (in base units)
@@ -41,12 +41,7 @@ contract LMSRMarketMaker is MarketMaker {
      * @param first Whether this is the first outcome (affects delta calculation)
      * @return delta Quantity change to add to q0 to achieve target price
      */
-    function getDelta(
-        int256 q0,
-        int256 q1,
-        int256 targetWad,
-        bool first
-    ) public view returns (int256 delta) {
+    function getDelta(int256 q0, int256 q1, int256 targetWad, bool first) public view returns (int256 delta) {
         require(q0 >= 0 && q1 >= 0, "Quantities must be non-negative");
         require(targetWad > 0 && targetWad < UNIT_DEC, "Target must be in (0,1)");
 
@@ -66,7 +61,7 @@ contract LMSRMarketMaker is MarketMaker {
         SD59x18 lnRatio = ln(ratio);
 
         int256 raw = int256(b.mul(lnRatio).unwrap() / int256(UNIT_DEC));
-        
+
         if (first) {
             delta = raw + (q1 - q0);
         } else {
@@ -81,22 +76,18 @@ contract LMSRMarketMaker is MarketMaker {
      * @param targetWad Target price for outcome idx as SD59x18 (0 < targetWad < 1e18)
      * @return delta Calculated delta for outcome idx
      */
-    function getDeltaGeneric(
-        int256[] memory qs,
-        uint8 idx,
-        int256 targetWad
-    ) public view returns (int256 delta) {
+    function getDeltaGeneric(int256[] memory qs, uint8 idx, int256 targetWad) public view returns (int256 delta) {
         require(qs.length > idx, "Invalid outcome index");
         require(targetWad > 0 && targetWad < UNIT_DEC, "Target must be in (0,1)");
 
         // Binary search range for delta
         uint256 lo = 0;
-        uint256 hi = 10**27; // Maximum 1e27 tokens
-        
+        uint256 hi = 10 ** 27; // Maximum 1e27 tokens
+
         // Binary search with ~60 iterations for precision
         for (uint256 i = 0; i < 60; i++) {
             uint256 mid = (lo + hi) >> 1;
-            
+
             // Test with delta = mid
             qs[idx] += int256(mid);
             int256 priceWad = _marginalPriceFromMemory(qs, idx);
@@ -108,7 +99,7 @@ contract LMSRMarketMaker is MarketMaker {
                 lo = mid; // Price too low, increase delta
             }
         }
-        
+
         delta = int256(lo);
     }
 
@@ -133,7 +124,7 @@ contract LMSRMarketMaker is MarketMaker {
     function calcNetCost(int256[] memory deltaOutcomeAmounts) public view override returns (int256 netCost) {
         uint256 n = outcomeSlotCount;
         require(deltaOutcomeAmounts.length == n, "Invalid outcome amount length");
-        
+
         int256[] memory q_new = new int256[](n);
         SD59x18[] memory balances_sd = new SD59x18[](n);
         SD59x18[] memory q_new_sd = new SD59x18[](n);
@@ -143,7 +134,7 @@ contract LMSRMarketMaker is MarketMaker {
             q_new_sd[i] = sd(q_new[i] * UNIT_DEC);
             balances_sd[i] = sd(int256(outcomeTokenAmounts[i]) * UNIT_DEC);
         }
-        
+
         SD59x18 b_old = getB(balances_sd);
         SD59x18 b_new = getB(q_new_sd);
 
@@ -157,7 +148,7 @@ contract LMSRMarketMaker is MarketMaker {
     }
 
     // ============ Internal Functions ============
-    
+
     /**
      * @notice Calculate marginal price from memory array
      * @param qs Quantities array
@@ -167,24 +158,24 @@ contract LMSRMarketMaker is MarketMaker {
     function _marginalPriceFromMemory(int256[] memory qs, uint8 idx) internal view returns (int256 priceWad) {
         uint256 n = qs.length;
         require(idx < n, "Invalid outcome index");
-        
+
         SD59x18[] memory qWad = new SD59x18[](n);
-        
+
         // Convert qs to SD59x18 format
         for (uint256 i = 0; i < n; i++) {
             require(qs[i] >= 0, "Quantity must be non-negative");
             qWad[i] = sd(qs[i] * UNIT_DEC);
         }
-        
+
         // Calculate b = α * Σ qs
         SD59x18 b = getB(qWad);
         require(b.unwrap() > 0, "B parameter is zero");
-        
+
         // Normalize qWad[i] = qWad[i]/b
         for (uint256 i = 0; i < n; i++) {
             qWad[i] = qWad[i].div(b);
         }
-        
+
         // Calculate offset and sum
         SD59x18 offset = _computeOffset(qWad);
         SD59x18 sum = sd(0);
@@ -192,7 +183,7 @@ contract LMSRMarketMaker is MarketMaker {
             sum = sum.add(exp(qWad[i].sub(offset)));
         }
         require(sum.unwrap() > 0, "Sum is zero");
-        
+
         // Calculate final price
         SD59x18 numer = exp(qWad[idx].sub(offset));
         priceWad = int256(numer.div(sum).unwrap());
@@ -235,7 +226,7 @@ contract LMSRMarketMaker is MarketMaker {
             }
         }
         offset = offset.sub(EXP_LIMIT_DEC);
-        
+
         // Calculate exponential sum
         sum = sd(0);
         for (uint256 i = 0; i < n; i++) {

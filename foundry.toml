@@ -1,6 +1,30 @@
 [profile.default]
 src = "src"
 out = "out"
-libs = ["lib"]
+libs = ["dependencies"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+[soldeer]
+# whether soldeer manages remappings
+remappings_generate = true
+
+# whether soldeer re-generates all remappings when installing, updating or uninstalling deps
+remappings_regenerate = false
+
+# whether to suffix the remapping with the version: `name-a.b.c`
+remappings_version = false
+
+# where to store the remappings ("txt" for `remappings.txt` or "config" for `foundry.toml`)
+# ignored when `soldeer.toml` is used as config (uses `remappings.txt`)
+remappings_location = "txt"
+
+# Install all subdependencies
+recursive_deps = true
+
+[dependencies]
+forge-std = "1.9.7"
+flare-periphery = { version = "latest", git = "https://github.com/flare-foundation/flare-foundry-periphery-package", rev = "80cdd9354ddcda17d3180c67c0347ba233435181" }
+"@openzeppelin-contracts" = "5.4.0-rc.1"
+"@prb-math" = "4.1.0"
+smartcontractkit-chainlink = "2.24.0"

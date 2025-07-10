@@ -1,6 +1,5 @@
-@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
-flare-periphery/=lib/flare-periphery-0.1.28/
-forge-std/=lib/forge-std/src/
-halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/
-openzeppelin-contracts/=lib/openzeppelin-contracts/
-@prb/math/=node_modules/@prb/math/
+@openzeppelin-contracts/=dependencies/@openzeppelin-contracts-5.4.0-rc.1/
+@prb-math/=dependencies/@prb-math-4.1.0/
+flare-periphery/=dependencies/flare-periphery-latest/
+forge-std/=dependencies/forge-std-1.9.7/
+smartcontractkit-chainlink/=dependencies/smartcontractkit-chainlink-2.24.0/

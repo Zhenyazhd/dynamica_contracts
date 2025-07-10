@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 
 /**
  * @title FtsoV2Interface
@@ -9,7 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  */
 interface FtsoV2Interface {
     // ============ Structs ============
-    
+
     /// @notice Feed data structure
     struct FeedData {
         uint32 votingRoundId;
@@ -32,12 +32,12 @@ interface FtsoV2Interface {
     }
 
     // ============ Events ============
-    
+
     /// @notice Event emitted when a feed id is changed
     event FeedIdChanged(bytes21 indexed oldFeedId, bytes21 indexed newFeedId);
 
     // ============ Functions ============
-    
+
     /**
      * @notice Returns the FTSO protocol id
      * @return _feedIds The list of supported feed ids
@@ -78,12 +78,9 @@ interface FtsoV2Interface {
      * @return _timestamp The timestamp of the last update
      */
     function getFeedById(bytes21 _feedId)
-        external payable
-        returns (
-            uint256 _value,
-            int8 _decimals,
-            uint64 _timestamp
-        );
+        external
+        payable
+        returns (uint256 _value, int8 _decimals, uint64 _timestamp);
 
     /**
      * @notice Returns stored data of each feed
@@ -93,12 +90,9 @@ interface FtsoV2Interface {
      * @return _timestamp The timestamp of the last update
      */
     function getFeedsById(bytes21[] memory _feedIds)
-        external payable
-        returns (
-            uint256[] memory _values,
-            int8[] memory _decimals,
-            uint64 _timestamp
-        );
+        external
+        payable
+        returns (uint256[] memory _values, int8[] memory _decimals, uint64 _timestamp);
 
     /**
      * @notice Returns value in wei and timestamp of a feed
@@ -106,12 +100,7 @@ interface FtsoV2Interface {
      * @return _value The value for the requested feed in wei
      * @return _timestamp The timestamp of the last update
      */
-    function getFeedByIdInWei(bytes21 _feedId)
-        external payable
-        returns (
-            uint256 _value,
-            uint64 _timestamp
-        );
+    function getFeedByIdInWei(bytes21 _feedId) external payable returns (uint256 _value, uint64 _timestamp);
 
     /**
      * @notice Returns value of each feed and a timestamp
@@ -120,11 +109,9 @@ interface FtsoV2Interface {
      * @return _timestamp The timestamp of the last update
      */
     function getFeedsByIdInWei(bytes21[] memory _feedIds)
-        external payable
-        returns (
-            uint256[] memory _values,
-            uint64 _timestamp
-        );
+        external
+        payable
+        returns (uint256[] memory _values, uint64 _timestamp);
 
     /**
      * @notice Checks if the feed data is valid
@@ -153,7 +140,7 @@ interface IMarketMaker {
  */
 contract OracleManager is Ownable {
     // ============ State Variables ============
-    
+
     /// @notice FTSO V2 interface
     FtsoV2Interface public ftso;
 
@@ -167,15 +154,15 @@ contract OracleManager is Ownable {
 
     /// @notice Staleness period for each oracle
     mapping(bytes21 => uint256) public staleness;
-    
+
     /// @notice Oracle ID for each token
     mapping(bytes32 => bytes21) public oracleForToken;
-    
+
     /// @notice Market data for each question
     mapping(string => Market) public market;
 
     // ============ Constructor ============
-    
+
     /**
      * @notice Constructor for OracleManager
      * @param ftsoV2Address The address of the FTSO V2 contract
@@ -185,7 +172,7 @@ contract OracleManager is Ownable {
     }
 
     // ============ External Functions ============
-    
+
     /**
      * @notice Adds a new oracle for a token
      * @param token The token identifier
@@ -215,7 +202,6 @@ contract OracleManager is Ownable {
         market[question] = Market(marketMaker, outcomeSlotCount, tokens, false);
     }
 
- 
     /**
      * @notice Closes market using FTSO oracle data
      * @param question The market question
@@ -230,36 +216,36 @@ contract OracleManager is Ownable {
         uint8[] memory decimals = new uint8[](currentMarket.outcomeSlotCount);
         uint8 maxDecimals = 0;
         uint64 currentTimestamp = uint64(block.timestamp);
-        
+
         // Get price data from FTSO for each token
         for (uint256 i = 0; i < currentMarket.outcomeSlotCount; i++) {
             bytes21 id = oracleForToken[currentMarket.tokens[i]];
             require(id != bytes21(0), "Oracle not found");
-            
+
             (uint256 value, int8 decimals_, uint64 timestamp) = ftso.getFeedById(id);
             require(currentTimestamp - timestamp <= staleness[id], "Oracle data is stale");
-            
+
             values[i] = value;
             decimals[i] = uint8(decimals_);
-            
+
             if (uint8(decimals_) > maxDecimals) {
                 maxDecimals = uint8(decimals_);
             }
         }
-        
+
         // Normalize values to same decimal precision
         uint256 denominator = 0;
         for (uint256 i = 0; i < currentMarket.outcomeSlotCount; i++) {
-            values[i] = values[i] * 10**(maxDecimals - decimals[i]);
+            values[i] = values[i] * 10 ** (maxDecimals - decimals[i]);
             denominator += values[i];
         }
-        
+
         // Calculate payout ratios
         results = new uint256[](currentMarket.outcomeSlotCount);
         for (uint256 i = 0; i < currentMarket.outcomeSlotCount; i++) {
-            results[i] = values[i] * (10**maxDecimals) / denominator;
+            results[i] = values[i] * (10 ** maxDecimals) / denominator;
         }
-        
+
         // Mark market as closed and notify market maker
         market[question].isClosed = true;
         IMarketMaker(currentMarket.marketMaker).closeMarket(results);
