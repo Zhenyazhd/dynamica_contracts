@@ -26,5 +26,6 @@ recursive_deps = true
 forge-std = "1.9.7"
 flare-periphery = { version = "latest", git = "https://github.com/flare-foundation/flare-foundry-periphery-package", rev = "80cdd9354ddcda17d3180c67c0347ba233435181" }
 "@openzeppelin-contracts" = "5.4.0-rc.1"
+"@openzeppelin-contracts-upgradeable" = "5.4.0-rc.1"
 "@prb-math" = "4.1.0"
 smartcontractkit-chainlink = "2.24.0"

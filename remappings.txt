@@ -1,3 +1,4 @@
+@openzeppelin-contracts-upgradeable/=dependencies/@openzeppelin-contracts-upgradeable-5.4.0-rc.1/
 @openzeppelin-contracts/=dependencies/@openzeppelin-contracts-5.4.0-rc.1/
 @prb-math/=dependencies/@prb-math-4.1.0/
 flare-periphery/=dependencies/flare-periphery-latest/

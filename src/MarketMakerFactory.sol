@@ -1,154 +1,331 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.25;
+
+/*
+██████╗ ██╗   ██╗███╗   ██╗ █████╗ ███╗   ███╗██╗ ██████╗ █████╗ 
+██╔══██╗╚██╗ ██╔╝████╗  ██║██╔══██╗████╗ ████║██║██╔════╝██╔══██╗
+██║  ██║ ╚████╔╝ ██╔██╗ ██║███████║██╔████╔██║██║██║     ███████║
+██║  ██║  ╚██╔╝  ██║╚██╗██║██╔══██║██║╚██╔╝██║██║██║     ██╔══██║
+██████╔╝   ██║   ██║ ╚████║██║  ██║██║ ╚═╝ ██║██║╚██████╗██║  ██║
+╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
+*/
 
 import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
-import {LMSRMarketMaker} from "./LMSRMarketMaker.sol";
-import {MarketMaker} from "./SimpleMarketMaker.sol";
+import {Clones} from "@openzeppelin-contracts/proxy/Clones.sol";
+import {Dynamica} from "./Dynamica.sol";
+import {IDynamica} from "./interfaces/IDynamica.sol";
+import {MarketMaker} from "./MarketMaker.sol";
+import {MarketResolutionManager} from "./Oracles/MarketResolutionManager.sol";
+import {ChainlinkResolutionModule} from "./Oracles/Hedera/ChainlinkResolutionModule.sol";
+import {FTSOResolutionModule} from "./Oracles/Flare/FTSOResolutionModule.sol";
+import {IMarketResolutionModule} from "./interfaces/IMarketResolutionModule.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
+
+import {console} from "forge-std/src/console.sol";
 
 /**
- * @title MarketMakerFactory
- * @dev Factory contract for creating MarketMaker instances
- * @notice This contract allows users to create new prediction markets with different parameters
+ * @title DynamicaFactory
+ * @dev Factory contract for deploying Dynamica prediction market makers using minimal proxy pattern
+ * @notice This contract creates gas-efficient clones of the Dynamica implementation
+ *
+ * Features:
+ * - Deploys minimal proxy clones for gas efficiency
+ * - Supports multiple resolution module types (Chainlink, FTSO)
+ * - Manages market maker registration and tracking
+ * - Handles collateral token transfers and approvals
  */
-contract MarketMakerFactory {
+contract DynamicaFactory is Ownable {
     // ============ Events ============
 
-    /// @notice Emitted when a new market maker is created
+    /**
+     * @notice Emitted when a new market maker is created
+     * @param creator Address of the market creator
+     * @param marketMaker Address of the created market maker contract
+     * @param collateralToken Address of the collateral token used
+     */
     event MarketMakerCreated(
         address indexed creator,
         address indexed marketMaker,
-        IERC20 indexed collateralToken,
-        uint64 fee,
-        uint256 funding
+        address indexed collateralToken
     );
 
-    // ============ State Variables ============
+    // ============ Storage ============
+
+    /// @notice Implementation contract for Dynamica market makers
+    address public immutable implementationMarketMaker;
+
+    /// @notice Implementation contract for Chainlink resolution modules
+    address public immutable implementationResolutionModuleChainlink;
+
+    /// @notice Implementation contract for FTSO resolution modules
+    address public immutable implementationResolutionModuleFTSO;
+
+    /// @notice Maximum fee that can be set (100% = 10,000 basis points)
     uint64 public constant FEE_RANGE = 10_000;
 
-    /// @notice Array of all created market makers
+    /// @notice Array of all created market maker addresses
     address[] public marketMakers;
 
-    /// @notice Mapping from market maker address to creator
+    /// @notice Address of the oracle coordinator that manages market resolution
+    address public oracleCoordinator;
+
+    /// @notice Address of the FTSO V2 contract for Flare network
+    address public immutable ftsoV2Address;
+
+    /// @notice Mapping from market maker address to its creator
     mapping(address => address) public marketMakerCreators;
 
-    /// @notice Mapping from creator to their market makers
+    /// @notice Mapping from creator address to array of their created market makers
     mapping(address => address[]) public creatorMarketMakers;
+
+    // ============ Constructor ============
+
+    /**
+     * @notice Initializes the factory with implementation contracts
+     * @param _implementationMarketMaker Address of the Dynamica implementation
+     * @param _implementationResolutionModuleChainlink Address of Chainlink resolution module implementation
+     * @param _implementationResolutionModuleFTSO Address of FTSO resolution module implementation
+     * @param _ftsoV2Address Address of the FTSO V2 contract
+     * @param _owner Address of the factory owner
+     */
+    constructor(
+        address _implementationMarketMaker,
+        address _implementationResolutionModuleChainlink,
+        address _implementationResolutionModuleFTSO,
+        address _ftsoV2Address,
+        address _owner
+    ) Ownable(_owner) {
+        require(
+            _implementationMarketMaker != address(0),
+            "Invalid implementation"
+        );
+        require(
+            _implementationResolutionModuleChainlink != address(0),
+            "Invalid implementation resolution module chainlink"
+        );
+        require(
+            _implementationResolutionModuleFTSO != address(0),
+            "Invalid implementation resolution module ftso"
+        );
+
+        implementationMarketMaker = _implementationMarketMaker;
+        implementationResolutionModuleChainlink = _implementationResolutionModuleChainlink;
+        implementationResolutionModuleFTSO = _implementationResolutionModuleFTSO;
+        ftsoV2Address = _ftsoV2Address;
+    }
+
+    /**
+     * @notice Sets the oracle coordinator address (owner only)
+     * @param _oracleCoordinator Address of the oracle coordinator
+     */
+    function setOracleCoordinator(
+        address _oracleCoordinator
+    ) external onlyOwner {
+        require(_oracleCoordinator != address(0), "Invalid oracle coordinator");
+        oracleCoordinator = _oracleCoordinator;
+    }
 
     // ============ External Functions ============
 
     /**
-     * @notice Creates a new MarketMaker contract
-     * @param collateralToken The collateral token to use for trading
-     * @param fee The fee rate (must be less than MarketMaker.FEE_RANGE)
-     * @return marketMaker The address of the created MarketMaker contract
+     * @notice Creates a new Dynamica market maker with specified configuration
+     * @param config Configuration for the market maker
+     * @param resolutionConfig Configuration for the resolution module
+     * @return cloneAddress Address of the created market maker clone
+     * @dev This function:
+     * 1. Validates all input parameters
+     * 2. Transfers collateral tokens from creator to factory
+     * 3. Creates a minimal proxy clone of the implementation
+     * 4. Creates and initializes the appropriate resolution module
+     * 5. Registers the market with the resolution manager
+     * 6. Initializes the market maker with the provided configuration
+     * 7. Records the creation for tracking purposes
      */
-    function createMarketMaker(IERC20 collateralToken, uint64 fee) external returns (LMSRMarketMaker marketMaker) {
-        require(address(collateralToken) != address(0), "Invalid collateral token");
-        require(fee < FEE_RANGE, "Fee too high");
+    function createMarketMaker(
+        IDynamica.Config memory config,
+        IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig
+    ) external returns (address cloneAddress) {
+        // Validate input parameters
+        require(config.collateralToken != address(0), "Invalid token");
+        require(config.owner != address(0), "Invalid owner");
+        require(config.fee < FEE_RANGE, "Fee too high");
+        require(config.oracle != address(0), "Invalid oracle address");
+        require(config.startFunding != 0, "Funding change must be non-zero");
+        require(
+            config.outcomeSlotCount > 1,
+            "Must have more than one outcome slot"
+        );
+        require(
+            config.outcomeTokenAmounts != 0,
+            "Outcome token amounts must be non-zero"
+        );
+        require(bytes(config.question).length > 0, "Question cannot be empty");
+        require(config.alpha > 0, "Alpha must be positive");
+        require(config.expLimit > 0, "Exp limit must be positive");
 
-        // Create new MarketMaker instance
-        marketMaker = new LMSRMarketMaker(collateralToken, fee);
+        // Transfer collateral tokens from creator to factory
+        require(
+            IERC20(config.collateralToken).transferFrom(
+                msg.sender,
+                address(this),
+                config.startFunding
+            ),
+            "Transfer failed"
+        );
 
-        // Transfer ownership to creator
-        marketMaker.transferOwnership(msg.sender);
+        // Create minimal proxy clone
+        cloneAddress = Clones.clone(implementationMarketMaker);
 
-        // Record the market maker
-        address marketMakerAddress = address(marketMaker);
-        marketMakers.push(marketMakerAddress);
-        marketMakerCreators[marketMakerAddress] = msg.sender;
-        creatorMarketMakers[msg.sender].push(marketMakerAddress);
+        // Approve collateral tokens for the new market maker
+        IERC20(config.collateralToken).approve(
+            cloneAddress,
+            config.startFunding
+        );
 
-        emit MarketMakerCreated(msg.sender, marketMakerAddress, collateralToken, fee, 0);
-    }
+        // Create and initialize the appropriate resolution module
+        address resolutionModule = _createAndInitializeResolutionModule(
+            resolutionConfig.resolutionModuleType
+        );
 
-    /**
-     * @notice Creates a new MarketMaker contract with initial funding
-     * @param collateralToken The collateral token to use for trading
-     * @param fee The fee rate (must be less than MarketMaker.FEE_RANGE)
-     * @param question The question identifier
-     * @param oracle The oracle address that will resolve the condition
-     * @param outcomeTokenAmounts The initial token amounts for each outcome
-     * @param startLiquidity The initial funding amount
-     * @param qAmounts The initial token amounts for each outcome
-     * @param outcomeTokenAmounts The initial token amounts for each outcome
-     * @return marketMaker The address of the created MarketMaker contract
-     */
-    function createMarketMakerWithFunding(
-        IERC20 collateralToken,
-        uint64 fee,
-        string calldata question,
-        address oracle,
-        uint256 outcomeTokenAmounts,
-        uint256 startLiquidity,
-        uint256 qAmounts
-    ) external returns (LMSRMarketMaker marketMaker) {
-        require(address(collateralToken) != address(0), "Invalid collateral token");
-        require(fee < 10 ** 18, "Fee too high");
-        require(startLiquidity > 0, "Funding must be positive");
+        // Register market with resolution manager
+        _registerMarketWithResolutionManager(
+            config.question,
+            cloneAddress,
+            config.outcomeSlotCount,
+            resolutionModule,
+            resolutionConfig.resolutionModuleType,
+            resolutionConfig.resolutionData
+        );
 
-        // Create new MarketMaker instance
-        marketMaker = new LMSRMarketMaker(collateralToken, fee);
-        // Record the market maker
-        address marketMakerAddress = address(marketMaker);
-        marketMakers.push(marketMakerAddress);
-        marketMakerCreators[marketMakerAddress] = msg.sender;
-        creatorMarketMakers[msg.sender].push(marketMakerAddress);
+        // Set oracle coordinator as the oracle for the market
+        config.oracle = oracleCoordinator;
 
-        marketMaker.prepareCondition(oracle, question, outcomeTokenAmounts);
-        // Initialize with funding
-        require(collateralToken.transferFrom(msg.sender, address(this), startLiquidity), "Funding transfer failed");
-        require(collateralToken.approve(marketMakerAddress, startLiquidity), "Funding approval failed");
+        // Initialize the market maker
+        Dynamica(cloneAddress).initialize(config);
 
-        marketMaker.initializeMarket(startLiquidity, qAmounts);
+        // Record the creation
+        marketMakers.push(cloneAddress);
+        marketMakerCreators[cloneAddress] = msg.sender;
+        creatorMarketMakers[msg.sender].push(cloneAddress);
 
-        // Transfer ownership to creator
-        marketMaker.transferOwnership(msg.sender);
-
-        emit MarketMakerCreated(msg.sender, marketMakerAddress, collateralToken, fee, startLiquidity);
+        emit MarketMakerCreated(
+            msg.sender,
+            cloneAddress,
+            config.collateralToken
+        );
     }
 
     // ============ View Functions ============
 
     /**
-     * @notice Gets all market makers created by this factory
-     * @return Array of all market maker addresses
+     * @notice Returns all created market maker addresses
+     * @return Array of market maker addresses
      */
     function getAllMarketMakers() external view returns (address[] memory) {
         return marketMakers;
     }
 
     /**
-     * @notice Gets the total number of market makers created
-     * @return The total count of market makers
+     * @notice Returns the total number of created market makers
+     * @return Number of market makers
      */
     function getMarketMakerCount() external view returns (uint256) {
         return marketMakers.length;
     }
 
     /**
-     * @notice Gets all market makers created by a specific address
-     * @param creator The address of the creator
+     * @notice Returns all market makers created by a specific address
+     * @param creator Address of the creator
      * @return Array of market maker addresses created by the specified address
      */
-    function getMarketMakersByCreator(address creator) external view returns (address[] memory) {
+    function getMarketMakersByCreator(
+        address creator
+    ) external view returns (address[] memory) {
         return creatorMarketMakers[creator];
     }
 
     /**
-     * @notice Gets the creator of a specific market maker
-     * @param marketMaker The address of the market maker
-     * @return The address of the creator
+     * @notice Returns the creator of a specific market maker
+     * @param marketMaker Address of the market maker
+     * @return Address of the market maker creator
      */
-    function getMarketMakerCreator(address marketMaker) external view returns (address) {
+    function getMarketMakerCreator(
+        address marketMaker
+    ) external view returns (address) {
         return marketMakerCreators[marketMaker];
     }
 
     /**
-     * @notice Checks if an address is a market maker created by this factory
-     * @param marketMaker The address to check
-     * @return True if the address is a market maker created by this factory
+     * @notice Checks if an address is a valid market maker created by this factory
+     * @param marketMaker Address to check
+     * @return True if the address is a valid market maker
      */
     function isMarketMaker(address marketMaker) external view returns (bool) {
         return marketMakerCreators[marketMaker] != address(0);
+    }
+
+    // ============ Private Functions ============
+
+    /**
+     * @notice Creates and initializes the appropriate resolution module based on type
+     * @param resolutionModuleType Type of resolution module to create
+     * @return resolutionModule Address of the created resolution module
+     * @dev Supports Chainlink and FTSO resolution modules
+     */
+    function _createAndInitializeResolutionModule(
+        IMarketResolutionModule.ResolutionModule resolutionModuleType
+    ) private returns (address resolutionModule) {
+        if (
+            resolutionModuleType ==
+            IMarketResolutionModule.ResolutionModule.CHAINLINK
+        ) {
+            // Create Chainlink resolution module clone
+            resolutionModule = Clones.clone(
+                implementationResolutionModuleChainlink
+            );
+            ChainlinkResolutionModule(resolutionModule).initialize(
+                oracleCoordinator
+            );
+        } else if (
+            resolutionModuleType ==
+            IMarketResolutionModule.ResolutionModule.FTSO
+        ) {
+            // Create FTSO resolution module clone
+            resolutionModule = Clones.clone(implementationResolutionModuleFTSO);
+            FTSOResolutionModule(resolutionModule).initialize(
+                ftsoV2Address,
+                oracleCoordinator
+            );
+        } else {
+            revert("Invalid resolution module type");
+        }
+    }
+
+    /**
+     * @notice Registers the market with the resolution manager
+     * @param question The market question text
+     * @param marketMakerAddress Address of the market maker
+     * @param outcomeSlotCount Number of possible outcomes
+     * @param resolutionModule Address of the resolution module
+     * @param resolutionModuleType Type of resolution module
+     * @param resolutionData Encoded resolution data for the module
+     * @dev This function registers the market with the oracle coordinator for resolution tracking
+     */
+    function _registerMarketWithResolutionManager(
+        string memory question,
+        address marketMakerAddress,
+        uint256 outcomeSlotCount,
+        address resolutionModule,
+        IMarketResolutionModule.ResolutionModule resolutionModuleType,
+        bytes memory resolutionData
+    ) private {
+        MarketResolutionManager(oracleCoordinator).registerMarket(
+            keccak256(bytes(question)),
+            marketMakerAddress,
+            outcomeSlotCount,
+            resolutionModule,
+            resolutionModuleType,
+            resolutionData
+        );
     }
 }
