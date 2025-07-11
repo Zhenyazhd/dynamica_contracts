@@ -1,0 +1,33 @@
+[[dependencies]]
+name = "@openzeppelin-contracts"
+version = "5.4.0-rc.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/@openzeppelin-contracts/5_4_0-rc_1_21-06-2025_06:47:06_contracts.zip"
+checksum = "21621154363eb535cdc3336f13ea38a65c105c259d37e7f52f5e2bb66de91062"
+integrity = "76903ab131fc1920d220f882b030acce26fa634c7842bb5c5b1062c3f4525ad2"
+
+[[dependencies]]
+name = "@prb-math"
+version = "4.1.0"
+url = "https://soldeer-revisions.s3.amazonaws.com/@prb-math/4_1_0_22-10-2024_05:57:38_math.zip"
+checksum = "66acf2a42311309c06ed71a8674d9c7feeecfcd5a9c15d76006c083cfce7e938"
+integrity = "03266dc49f8be85438f5f7ce654ac700346862e5f927d17038481cf526ff4d62"
+
+[[dependencies]]
+name = "flare-periphery"
+version = "latest"
+git = "https://github.com/flare-foundation/flare-foundry-periphery-package"
+rev = "80cdd9354ddcda17d3180c67c0347ba233435181"
+
+[[dependencies]]
+name = "forge-std"
+version = "1.9.7"
+url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_9_7_28-04-2025_15:55:08_forge-std-1.9.zip"
+checksum = "8d9e0a885fa8ee6429a4d344aeb6799119f6a94c7c4fe6f188df79b0dce294ba"
+integrity = "9e60fdba82bc374df80db7f2951faff6467b9091873004a3d314cf0c084b3c7d"
+
+[[dependencies]]
+name = "smartcontractkit-chainlink"
+version = "2.24.0"
+url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink/2_24_0_30-05-2025_05:36:05_smartcontractkit-chainlink-2.24.zip"
+checksum = "e864db91b14cd00d7c99672d1f6eb15daffcdc5c76239ff5d68d3503959099cf"
+integrity = "b4113af4847d2c2eead63c7e11e37648c6d8eb870ad037b01c36756f4345ad09"

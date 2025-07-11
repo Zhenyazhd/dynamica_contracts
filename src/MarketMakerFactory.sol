@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { LMSRMarketMaker } from "./LMSRMarketMaker.sol";
-import { MarketMaker } from "./SimpleMarketMaker.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {LMSRMarketMaker} from "./LMSRMarketMaker.sol";
+import {MarketMaker} from "./SimpleMarketMaker.sol";
 
 /**
  * @title MarketMakerFactory
@@ -12,7 +12,7 @@ import { MarketMaker } from "./SimpleMarketMaker.sol";
  */
 contract MarketMakerFactory {
     // ============ Events ============
-    
+
     /// @notice Emitted when a new market maker is created
     event MarketMakerCreated(
         address indexed creator,
@@ -25,52 +25,42 @@ contract MarketMakerFactory {
     // ============ State Variables ============
     uint64 public constant FEE_RANGE = 10_000;
 
-    
     /// @notice Array of all created market makers
     address[] public marketMakers;
-    
+
     /// @notice Mapping from market maker address to creator
     mapping(address => address) public marketMakerCreators;
-    
+
     /// @notice Mapping from creator to their market makers
     mapping(address => address[]) public creatorMarketMakers;
 
     // ============ External Functions ============
-    
+
     /**
      * @notice Creates a new MarketMaker contract
      * @param collateralToken The collateral token to use for trading
      * @param fee The fee rate (must be less than MarketMaker.FEE_RANGE)
      * @return marketMaker The address of the created MarketMaker contract
      */
-    function createMarketMaker(
-        IERC20 collateralToken,
-        uint64 fee
-    ) external returns (LMSRMarketMaker marketMaker) {
+    function createMarketMaker(IERC20 collateralToken, uint64 fee) external returns (LMSRMarketMaker marketMaker) {
         require(address(collateralToken) != address(0), "Invalid collateral token");
         require(fee < FEE_RANGE, "Fee too high");
-        
+
         // Create new MarketMaker instance
         marketMaker = new LMSRMarketMaker(collateralToken, fee);
-        
+
         // Transfer ownership to creator
         marketMaker.transferOwnership(msg.sender);
-        
+
         // Record the market maker
         address marketMakerAddress = address(marketMaker);
         marketMakers.push(marketMakerAddress);
         marketMakerCreators[marketMakerAddress] = msg.sender;
         creatorMarketMakers[msg.sender].push(marketMakerAddress);
-        
-        emit MarketMakerCreated(
-            msg.sender,
-            marketMakerAddress,
-            collateralToken,
-            fee,
-            0
-        );
+
+        emit MarketMakerCreated(msg.sender, marketMakerAddress, collateralToken, fee, 0);
     }
-    
+
     /**
      * @notice Creates a new MarketMaker contract with initial funding
      * @param collateralToken The collateral token to use for trading
@@ -93,9 +83,9 @@ contract MarketMakerFactory {
         uint256 qAmounts
     ) external returns (LMSRMarketMaker marketMaker) {
         require(address(collateralToken) != address(0), "Invalid collateral token");
-        require(fee < 10**18, "Fee too high");
+        require(fee < 10 ** 18, "Fee too high");
         require(startLiquidity > 0, "Funding must be positive");
-        
+
         // Create new MarketMaker instance
         marketMaker = new LMSRMarketMaker(collateralToken, fee);
         // Record the market maker
@@ -104,35 +94,21 @@ contract MarketMakerFactory {
         marketMakerCreators[marketMakerAddress] = msg.sender;
         creatorMarketMakers[msg.sender].push(marketMakerAddress);
 
-
-        marketMaker.prepareCondition(oracle, question, outcomeTokenAmounts);        
+        marketMaker.prepareCondition(oracle, question, outcomeTokenAmounts);
         // Initialize with funding
-        require(
-            collateralToken.transferFrom(msg.sender, address(this), startLiquidity),
-            "Funding transfer failed"
-        );
-        require(
-            collateralToken.approve(marketMakerAddress, startLiquidity),
-            "Funding approval failed"
-        );
-        
+        require(collateralToken.transferFrom(msg.sender, address(this), startLiquidity), "Funding transfer failed");
+        require(collateralToken.approve(marketMakerAddress, startLiquidity), "Funding approval failed");
+
         marketMaker.initializeMarket(startLiquidity, qAmounts);
-        
+
         // Transfer ownership to creator
         marketMaker.transferOwnership(msg.sender);
-        
-        
-        emit MarketMakerCreated(
-            msg.sender,
-            marketMakerAddress,
-            collateralToken,
-            fee,
-            startLiquidity
-        );
+
+        emit MarketMakerCreated(msg.sender, marketMakerAddress, collateralToken, fee, startLiquidity);
     }
 
     // ============ View Functions ============
-    
+
     /**
      * @notice Gets all market makers created by this factory
      * @return Array of all market maker addresses
@@ -140,7 +116,7 @@ contract MarketMakerFactory {
     function getAllMarketMakers() external view returns (address[] memory) {
         return marketMakers;
     }
-    
+
     /**
      * @notice Gets the total number of market makers created
      * @return The total count of market makers
@@ -148,7 +124,7 @@ contract MarketMakerFactory {
     function getMarketMakerCount() external view returns (uint256) {
         return marketMakers.length;
     }
-    
+
     /**
      * @notice Gets all market makers created by a specific address
      * @param creator The address of the creator
@@ -157,7 +133,7 @@ contract MarketMakerFactory {
     function getMarketMakersByCreator(address creator) external view returns (address[] memory) {
         return creatorMarketMakers[creator];
     }
-    
+
     /**
      * @notice Gets the creator of a specific market maker
      * @param marketMaker The address of the market maker
@@ -166,7 +142,7 @@ contract MarketMakerFactory {
     function getMarketMakerCreator(address marketMaker) external view returns (address) {
         return marketMakerCreators[marketMaker];
     }
-    
+
     /**
      * @notice Checks if an address is a market maker created by this factory
      * @param marketMaker The address to check
@@ -175,4 +151,4 @@ contract MarketMakerFactory {
     function isMarketMaker(address marketMaker) external view returns (bool) {
         return marketMakerCreators[marketMaker] != address(0);
     }
-} 
+}

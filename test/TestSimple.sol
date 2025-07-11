@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Test} from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Test} from "forge-std/src/Test.sol";
+import {console} from "forge-std/src/console.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "./MockToken.sol";
 import {LMSRMarketMaker} from "../src/LMSRMarketMaker.sol";
 import {MarketMakerFactory} from "../src/MarketMakerFactory.sol";
-import { SD59x18, sd, exp, ln} from "@prb/math/src/SD59x18.sol";
-import "forge-std/Test.sol";
+import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 
 contract LMSRMarketMakerSimpleTest is Test {
     LMSRMarketMaker public marketMaker;
     MockToken public mockToken;
-    int constant public UNIT_DEC = 1e18;
-    int constant public alha = 3 * UNIT_DEC / 100;
-    int ln_2 = ln( sd(2 * UNIT_DEC) ).unwrap();
+    int256 public constant UNIT_DEC = 1e18;
+    int256 public constant alha = 3 * UNIT_DEC / 100;
+    int256 ln_2 = ln(sd(2 * UNIT_DEC)).unwrap();
     address OWNER = address(0xABCD);
     address ORACLE = address(0x1234);
     address trader_0 = address(0);
@@ -26,54 +26,101 @@ contract LMSRMarketMakerSimpleTest is Test {
         vm.startPrank(OWNER); // vm.prank(OWNER);
         mockToken = new MockToken();
         marketMaker = new LMSRMarketMaker(mockToken, 0);
-        mockToken.mint(OWNER, 1_000_000*10**18);
-        mockToken.mint(trader_0, 1_000_000*10**18);
-        mockToken.mint(trader_1, 1_000_000*10**18);
-        mockToken.mint(trader_2, 1_000_000*10**18);
-        mockToken.mint(trader_3, 1_000_000*10**18);
-        uint startLiquidity = 10*10**18;
+        mockToken.mint(OWNER, 1_000_000 * 10 ** 18);
+        mockToken.mint(trader_0, 1_000_000 * 10 ** 18);
+        mockToken.mint(trader_1, 1_000_000 * 10 ** 18);
+        mockToken.mint(trader_2, 1_000_000 * 10 ** 18);
+        mockToken.mint(trader_3, 1_000_000 * 10 ** 18);
+        uint256 startLiquidity = 10 * 10 ** 18;
         mockToken.approve(address(marketMaker), startLiquidity);
         string memory question = "eth/usdc";
-        int qAmounts = 1_000e18;                                //int(startLiquidity) * UNIT_DEC/(UNIT_DEC+2*ln_2);
+        int256 qAmounts = 1_000e18; //int(startLiquidity) * UNIT_DEC/(UNIT_DEC+2*ln_2);
         marketMaker.prepareCondition(ORACLE, question, 5);
-        marketMaker.initializeMarket(startLiquidity, uint(qAmounts));
+        marketMaker.initializeMarket(startLiquidity, uint256(qAmounts));
         vm.stopPrank();
-       // vm.writeLine("gas_data_fuzzed_hard.csv", "gas_used");
+        // vm.writeLine("gas_data_fuzzed_hard.csv", "gas_used");
     }
 
     function testAllCicleSimple() public {
         address[] memory traders = new address[](21);
-        traders[0] = trader_0; traders[1] = trader_1; traders[2] = trader_2; traders[3] = trader_3; traders[4] = trader_0;
-        traders[5] = trader_1; traders[6] = trader_2; traders[7] = trader_3; traders[8] = trader_2; traders[9] = trader_3;
-        traders[10] = trader_1; traders[11] = trader_2; traders[12] = trader_3; traders[13] = trader_2; traders[14] = trader_3;
-        traders[15] = trader_1; traders[16] = trader_2; traders[17] = trader_3; traders[18] = trader_2; traders[19] = trader_3;
+        traders[0] = trader_0;
+        traders[1] = trader_1;
+        traders[2] = trader_2;
+        traders[3] = trader_3;
+        traders[4] = trader_0;
+        traders[5] = trader_1;
+        traders[6] = trader_2;
+        traders[7] = trader_3;
+        traders[8] = trader_2;
+        traders[9] = trader_3;
+        traders[10] = trader_1;
+        traders[11] = trader_2;
+        traders[12] = trader_3;
+        traders[13] = trader_2;
+        traders[14] = trader_3;
+        traders[15] = trader_1;
+        traders[16] = trader_2;
+        traders[17] = trader_3;
+        traders[18] = trader_2;
+        traders[19] = trader_3;
         traders[20] = trader_1;
-        
+
         uint8[] memory buy_ids = new uint8[](21);
-        buy_ids[0] = 4; buy_ids[1] = 0; buy_ids[2] = 1; buy_ids[3] = 4; buy_ids[4] = 0;
-        buy_ids[5] = 0; buy_ids[6] = 1; buy_ids[7] = 0; buy_ids[8] = 1; buy_ids[9] = 4;
-        buy_ids[10] = 0; buy_ids[11] = 1; buy_ids[12] = 0; buy_ids[13] = 1; buy_ids[14] = 4;
-        buy_ids[15] = 0; buy_ids[16] = 1; buy_ids[17] = 0; buy_ids[18] = 1; buy_ids[19] = 4;
+        buy_ids[0] = 4;
+        buy_ids[1] = 0;
+        buy_ids[2] = 1;
+        buy_ids[3] = 4;
+        buy_ids[4] = 0;
+        buy_ids[5] = 0;
+        buy_ids[6] = 1;
+        buy_ids[7] = 0;
+        buy_ids[8] = 1;
+        buy_ids[9] = 4;
+        buy_ids[10] = 0;
+        buy_ids[11] = 1;
+        buy_ids[12] = 0;
+        buy_ids[13] = 1;
+        buy_ids[14] = 4;
+        buy_ids[15] = 0;
+        buy_ids[16] = 1;
+        buy_ids[17] = 0;
+        buy_ids[18] = 1;
+        buy_ids[19] = 4;
         buy_ids[20] = 0;
-        
+
         int256[] memory amounts = new int256[](21);
-        amounts[0] = 45e18; amounts[1] = 37e18; amounts[2] = 41e18; amounts[3] = 94e18; amounts[4] = 23e18;
-        amounts[5] = 23e18; amounts[6] = 47e18; amounts[7] = 15e18; amounts[8] = 4e18; amounts[9] = 37e18;
-        amounts[10] = 14e18; amounts[11] = 20e18; amounts[12] = 9e18; amounts[13] = 3e18; amounts[14] = 17e18;
-        amounts[15] = 6e18; amounts[16] = 9e18; amounts[17] = 6e18; amounts[18] = 2e18; amounts[19] = 9e18;
+        amounts[0] = 45e18;
+        amounts[1] = 37e18;
+        amounts[2] = 41e18;
+        amounts[3] = 94e18;
+        amounts[4] = 23e18;
+        amounts[5] = 23e18;
+        amounts[6] = 47e18;
+        amounts[7] = 15e18;
+        amounts[8] = 4e18;
+        amounts[9] = 37e18;
+        amounts[10] = 14e18;
+        amounts[11] = 20e18;
+        amounts[12] = 9e18;
+        amounts[13] = 3e18;
+        amounts[14] = 17e18;
+        amounts[15] = 6e18;
+        amounts[16] = 9e18;
+        amounts[17] = 6e18;
+        amounts[18] = 2e18;
+        amounts[19] = 9e18;
         amounts[20] = 1e18;
         assertEq(traders.length, buy_ids.length);
         assertEq(traders.length, amounts.length);
         int256[] memory deltaOutcomeAmounts_ = new int256[](5);
-        uint startGas = 0;
-        uint used = 0;
-        for(uint i = 0; i < traders.length; i++) {
+        uint256 startGas = 0;
+        uint256 used = 0;
+        for (uint256 i = 0; i < traders.length; i++) {
             vm.startPrank(traders[i]);
-            for(uint j = 0; j < 5; j++) {
-                if(j == buy_ids[i]){
+            for (uint256 j = 0; j < 5; j++) {
+                if (j == buy_ids[i]) {
                     deltaOutcomeAmounts_[j] = amounts[i];
-                }
-                else{
+                } else {
                     deltaOutcomeAmounts_[j] = 0;
                 }
             }
@@ -81,58 +128,109 @@ contract LMSRMarketMakerSimpleTest is Test {
 
             startGas = gasleft();
             marketMaker.makePrediction(deltaOutcomeAmounts_);
-            used    = startGas - gasleft();
+            used = startGas - gasleft();
             string memory line = vm.toString(used);
             //vm.writeLine("gas_data_fuzzed.csv", line);
             vm.stopPrank();
-        }        
+        }
     }
 
     function testAllCicleComplex() public {
         address[] memory traders = new address[](11);
-        traders[0] = trader_0; traders[1] = trader_1; traders[2] = trader_2; traders[3] = trader_3; traders[4] = trader_0;
-        traders[5] = trader_1; traders[6] = trader_2; traders[7] = trader_3; traders[8] = trader_2; traders[9] = trader_3;
-        traders[10] = trader_1; 
-        
+        traders[0] = trader_0;
+        traders[1] = trader_1;
+        traders[2] = trader_2;
+        traders[3] = trader_3;
+        traders[4] = trader_0;
+        traders[5] = trader_1;
+        traders[6] = trader_2;
+        traders[7] = trader_3;
+        traders[8] = trader_2;
+        traders[9] = trader_3;
+        traders[10] = trader_1;
 
         int256[][] memory amounts = new int256[][](11);
 
         amounts[0] = new int256[](5);
-        amounts[0][0] = 546e18; amounts[0][1] = 514e18; amounts[0][2] = 224e18; amounts[0][3] = 458e18; amounts[0][4] = 626e18;
+        amounts[0][0] = 546e18;
+        amounts[0][1] = 514e18;
+        amounts[0][2] = 224e18;
+        amounts[0][3] = 458e18;
+        amounts[0][4] = 626e18;
         amounts[1] = new int256[](5);
-        amounts[1][0] = 527e18; amounts[1][1] = 496e18; amounts[1][2] = 224e18; amounts[1][3] = 458e18; amounts[1][4] = 505e18;
+        amounts[1][0] = 527e18;
+        amounts[1][1] = 496e18;
+        amounts[1][2] = 224e18;
+        amounts[1][3] = 458e18;
+        amounts[1][4] = 505e18;
         amounts[2] = new int256[](5);
-        amounts[2][0] = 299e18; amounts[2][1] = 136e18; amounts[2][2] = 224e18; amounts[2][3] = 458e18; amounts[2][4] = 286e18;
+        amounts[2][0] = 299e18;
+        amounts[2][1] = 136e18;
+        amounts[2][2] = 224e18;
+        amounts[2][3] = 458e18;
+        amounts[2][4] = 286e18;
         amounts[3] = new int256[](5);
-        amounts[3][0] = 263e18; amounts[3][1] = 136e18; amounts[3][2] = 183e18; amounts[3][3] = 418e18; amounts[3][4] = 286e18;
+        amounts[3][0] = 263e18;
+        amounts[3][1] = 136e18;
+        amounts[3][2] = 183e18;
+        amounts[3][3] = 418e18;
+        amounts[3][4] = 286e18;
         amounts[4] = new int256[](5);
-        amounts[4][0] = 143e18; amounts[4][1] = 136e18; amounts[4][2] = 181e18; amounts[4][3] = 179e18; amounts[4][4] = 167e18;
+        amounts[4][0] = 143e18;
+        amounts[4][1] = 136e18;
+        amounts[4][2] = 181e18;
+        amounts[4][3] = 179e18;
+        amounts[4][4] = 167e18;
         amounts[5] = new int256[](5);
-        amounts[5][0] = 92e18; amounts[5][1] = 122e18; amounts[5][2] = 121e18; amounts[5][3] = 179e18; amounts[5][4] = 118e18;
+        amounts[5][0] = 92e18;
+        amounts[5][1] = 122e18;
+        amounts[5][2] = 121e18;
+        amounts[5][3] = 179e18;
+        amounts[5][4] = 118e18;
         amounts[6] = new int256[](5);
-        amounts[6][0] = 53e18; amounts[6][1] = 88e18; amounts[6][2] = 85e18; amounts[6][3] = 68e18; amounts[6][4] = 117e18;
+        amounts[6][0] = 53e18;
+        amounts[6][1] = 88e18;
+        amounts[6][2] = 85e18;
+        amounts[6][3] = 68e18;
+        amounts[6][4] = 117e18;
         amounts[7] = new int256[](5);
-        amounts[7][0] = 53e18; amounts[7][1] = 62e18; amounts[7][2] = 65e18; amounts[7][3] = 68e18; amounts[7][4] = 66e18;
+        amounts[7][0] = 53e18;
+        amounts[7][1] = 62e18;
+        amounts[7][2] = 65e18;
+        amounts[7][3] = 68e18;
+        amounts[7][4] = 66e18;
         amounts[8] = new int256[](5);
-        amounts[8][0] = 0; amounts[8][1] = 11e18; amounts[8][2] = 25e18; amounts[8][3] = 68e18; amounts[8][4] = 28e18;
+        amounts[8][0] = 0;
+        amounts[8][1] = 11e18;
+        amounts[8][2] = 25e18;
+        amounts[8][3] = 68e18;
+        amounts[8][4] = 28e18;
         amounts[9] = new int256[](5);
-        amounts[9][0] = 0; amounts[9][1] = 10e18; amounts[9][2] = 9e18; amounts[9][3] = 0; amounts[9][4] = 21e18;
+        amounts[9][0] = 0;
+        amounts[9][1] = 10e18;
+        amounts[9][2] = 9e18;
+        amounts[9][3] = 0;
+        amounts[9][4] = 21e18;
         amounts[10] = new int256[](5);
-        amounts[10][0] = 0; amounts[10][1] = 2e18; amounts[10][2] = 2e18; amounts[10][3] = 0; amounts[10][4] = 1e18;
+        amounts[10][0] = 0;
+        amounts[10][1] = 2e18;
+        amounts[10][2] = 2e18;
+        amounts[10][3] = 0;
+        amounts[10][4] = 1e18;
 
         int256[] memory deltaOutcomeAmounts_ = new int256[](5);
-        uint startGas = 0;
-        uint used = 0;
-        for(uint i = 0; i < traders.length; i++) {
+        uint256 startGas = 0;
+        uint256 used = 0;
+        for (uint256 i = 0; i < traders.length; i++) {
             vm.startPrank(traders[i]);
             mockToken.approve(address(marketMaker), 1_000e18);
             startGas = gasleft();
             marketMaker.makePrediction(amounts[i]);
-            used    = startGas - gasleft();
+            used = startGas - gasleft();
             //string memory line = vm.toString(used);
             //vm.writeLine("gas_data_fuzzed_hard.csv", line);
             vm.stopPrank();
-        }        
+        }
     }
 
     function testReportPayoutComplex() public {
@@ -142,10 +240,10 @@ contract LMSRMarketMakerSimpleTest is Test {
         uint256 startBalance_3 = mockToken.balanceOf(address(trader_3));
         testAllCicleComplex();
         uint256[] memory payouts = new uint256[](5);
-        payouts[0] = 25 * uint256(UNIT_DEC) / 100; 
-        payouts[1] = 25 * uint256(UNIT_DEC) / 100; 
-        payouts[2] = 10 * uint256(UNIT_DEC) / 100; 
-        payouts[3] = 10 * uint256(UNIT_DEC) / 100; 
+        payouts[0] = 25 * uint256(UNIT_DEC) / 100;
+        payouts[1] = 25 * uint256(UNIT_DEC) / 100;
+        payouts[2] = 10 * uint256(UNIT_DEC) / 100;
+        payouts[3] = 10 * uint256(UNIT_DEC) / 100;
         payouts[4] = 30 * uint256(UNIT_DEC) / 100;
         vm.prank(ORACLE);
         marketMaker.closeMarket(payouts);
@@ -189,10 +287,10 @@ contract LMSRMarketMakerSimpleTest is Test {
         uint256 middleBalance_2 = mockToken.balanceOf(address(trader_2));
         uint256 middleBalance_3 = mockToken.balanceOf(address(trader_3));
         uint256[] memory payouts = new uint256[](5);
-        payouts[0] = 25 * uint256(UNIT_DEC) / 100; 
-        payouts[1] = 25 * uint256(UNIT_DEC) / 100; 
-        payouts[2] = 10 * uint256(UNIT_DEC) / 100; 
-        payouts[3] = 10 * uint256(UNIT_DEC) / 100; 
+        payouts[0] = 25 * uint256(UNIT_DEC) / 100;
+        payouts[1] = 25 * uint256(UNIT_DEC) / 100;
+        payouts[2] = 10 * uint256(UNIT_DEC) / 100;
+        payouts[3] = 10 * uint256(UNIT_DEC) / 100;
         payouts[4] = 30 * uint256(UNIT_DEC) / 100;
         vm.prank(ORACLE);
         marketMaker.closeMarket(payouts);
@@ -215,7 +313,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         uint256 endBalance_3 = mockToken.balanceOf(address(trader_3));
 
         console.log("middle_0 < before_0", middleBalance_0 < startBalance_0);
-        console.log(startBalance_0 - middleBalance_0); 
+        console.log(startBalance_0 - middleBalance_0);
         console.log("middle_1 < before_1", middleBalance_1 < startBalance_1);
         console.log(startBalance_1 - middleBalance_1);
         console.log("middle_2 < before_2", middleBalance_2 < startBalance_2);
@@ -224,7 +322,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         console.log(startBalance_3 - middleBalance_3);
 
         console.log("before_0 > after_0", startBalance_0 > endBalance_0);
-        console.log(endBalance_0 - startBalance_0); 
+        console.log(endBalance_0 - startBalance_0);
         console.log("before_1 > after_1", startBalance_1 > endBalance_1);
         console.log(startBalance_1 - endBalance_1);
         console.log("before_2 > after_2", startBalance_2 > endBalance_2);
@@ -233,31 +331,40 @@ contract LMSRMarketMakerSimpleTest is Test {
         console.log(startBalance_3 - endBalance_3);
     }
 
-
     function testSellComplex() public {
         address[] memory traders = new address[](3);
-        traders[0] = trader_1; 
-        traders[1] = trader_1; 
-        traders[2] = trader_1; 
-      
+        traders[0] = trader_1;
+        traders[1] = trader_1;
+        traders[2] = trader_1;
+
         int256[][] memory amounts = new int256[][](3);
 
         amounts[0] = new int256[](5);
-        amounts[0][0] = 546e18; amounts[0][1] = 514e18; amounts[0][2] = 224e18; amounts[0][3] = 458e18; amounts[0][4] = 626e18;
+        amounts[0][0] = 546e18;
+        amounts[0][1] = 514e18;
+        amounts[0][2] = 224e18;
+        amounts[0][3] = 458e18;
+        amounts[0][4] = 626e18;
         amounts[1] = new int256[](5);
-        amounts[1][0] = 527e18; amounts[1][1] = 496e18; amounts[1][2] = 224e18; amounts[1][3] = 458e18; amounts[1][4] = 505e18;
+        amounts[1][0] = 527e18;
+        amounts[1][1] = 496e18;
+        amounts[1][2] = 224e18;
+        amounts[1][3] = 458e18;
+        amounts[1][4] = 505e18;
         amounts[2] = new int256[](5);
-        amounts[2][0] = -527e18; amounts[2][1] = -496e18; amounts[2][2] = -224e18; amounts[2][3] = -458e18; amounts[2][4] = -505e18;
-      
-
+        amounts[2][0] = -527e18;
+        amounts[2][1] = -496e18;
+        amounts[2][2] = -224e18;
+        amounts[2][3] = -458e18;
+        amounts[2][4] = -505e18;
 
         int256[] memory deltaOutcomeAmounts_ = new int256[](5);
-        uint startGas = 0;
-        uint used = 0;
-      
+        uint256 startGas = 0;
+        uint256 used = 0;
+
         vm.startPrank(trader_0);
         mockToken.approve(address(marketMaker), 1_000_000e18);
-       
+
         uint256 balance_0 = mockToken.balanceOf(address(trader_0));
         marketMaker.makePrediction(amounts[0]);
 
@@ -274,37 +381,36 @@ contract LMSRMarketMakerSimpleTest is Test {
         console.log("balance_2", balance_2);
         console.log("balance_3", balance_3);
 
-
         vm.stopPrank();
     }
 
-/*
- * ============================================================================
- *                    RESEARCH STABILITY ANALYSIS SECTION
- * ============================================================================
- * 
- * This section contains comprehensive gas consumption analysis tests for the
- * LMSR (Logarithmic Market Scoring Rule) market maker formula stability research.
- * 
- * Purpose: These tests were designed to analyze the gas efficiency and computational
- * stability of the LMSR formula under various market conditions and parameter ranges.
- * The research focused on understanding how gas consumption varies with different
- * input parameters and market states, ensuring the formula remains efficient and
- * predictable across all possible scenarios.
- * 
- * Key Research Areas:
- * - Gas consumption patterns with varying delta values
- * - Computational stability under extreme market conditions
- * - Performance analysis across different parameter ranges
- * - Formula behavior validation under stress conditions
- * 
- * While the improvements in the code it was not really possible to keep the tests 
- * up to date, so at this stage they are not running
- * 
- * ============================================================================
- */
+    /*
+    * ============================================================================
+    *                    RESEARCH STABILITY ANALYSIS SECTION
+    * ============================================================================
+    *
+    * This section contains comprehensive gas consumption analysis tests for the
+    * LMSR (Logarithmic Market Scoring Rule) market maker formula stability research.
+    *
+    * Purpose: These tests were designed to analyze the gas efficiency and computational
+    * stability of the LMSR formula under various market conditions and parameter ranges.
+    * The research focused on understanding how gas consumption varies with different
+    * input parameters and market states, ensuring the formula remains efficient and
+    * predictable across all possible scenarios.
+    *
+    * Key Research Areas:
+    * - Gas consumption patterns with varying delta values
+    * - Computational stability under extreme market conditions
+    * - Performance analysis across different parameter ranges
+    * - Formula behavior validation under stress conditions
+    *
+    * While the improvements in the code it was not really possible to keep the tests
+    * up to date, so at this stage they are not running
+    *
+    * ============================================================================
+    */
 
-  /*  // Helper function for generating random numbers with fixed precision
+    /*  // Helper function for generating random numbers with fixed precision
     // Uses UNIT_DEC from the contract for scaling
     function _generateFixedPoint(uint seed, uint maxFloatValue) internal view returns (int) {
         // Multiply by the contract's UNIT_DEC to get a fixed-point number
@@ -329,7 +435,7 @@ contract LMSRMarketMakerSimpleTest is Test {
 
 
     function testFuzz_calcNetCost_fuzzed(
-        int256[10] memory deltas    
+        int256[10] memory deltas
     ) public {
         int256[] memory bals = new int256[](deltas.length);
         int256[] memory deltas_ = new int256[](deltas.length);
@@ -348,7 +454,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         _logGasAndResult(deltas_, bals, result, used);
 
         // 5) (Optional) Some assertions
-        // assertGe(result, 0); 
+        // assertGe(result, 0);
     }
 
     function testFuzz_calcNetCost_fuzzed(
@@ -371,7 +477,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         _logGasAndResult(deltas, bals, result, used);
 
         // 5) (Optional) Some assertions
-        // assertGe(result, 0); 
+        // assertGe(result, 0);
     }*/
 
     /*function testFuzz_calcNetCost_fuzzed(
@@ -383,7 +489,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         int delta0 = bound(delta0_, 10e9, 10e25);  // now 0 ≤ delta0 ≤ 10e18
         int delta1 = bound(delta1_, 10e9, 10e25);
         int bal0   = bound(bal0_,   10e9, 10e25);
-        int bal1   = bound(bal1_,   10e9, 10e25); 
+        int bal1   = bound(bal1_,   10e9, 10e25);
 
         // 2) Pack into arrays
         int256[] memory deltas = new int256[](2);
@@ -400,11 +506,11 @@ contract LMSRMarketMakerSimpleTest is Test {
         _logGasAndResult(deltas, bals, result, used);
 
         // 5) (Optional) Some assertions
-        // assertGe(result, 0); 
+        // assertGe(result, 0);
     }*/
 
     // --- Original test adapted for general functions ---
-  /* function test_collectGasAndResult_RandomGeneral() public {
+    /* function test_collectGasAndResult_RandomGeneral() public {
         // Add header if file doesn't exist yet or we want to rewrite it
         // This can be done in setUp, but for more flexibility we'll leave it here.
         // vm.writeLine("gas_data.csv", "q0,q1,balances0,balances1,resultCost,gas_used");
@@ -417,10 +523,10 @@ contract LMSRMarketMakerSimpleTest is Test {
         // and ensure the file is cleared between full runs.
         // For demonstration, I'll leave it here, but keep in mind.
         vm.writeLine("gas_data.csv", "delta0,delta1,bal0,bal1,resultCost,gas_used");
-        
+
         for (uint i = 1; i <= 100; i++) {
             uint seed = uint(keccak256(abi.encodePacked(i)));
-            
+
             // Generate deltas and balances in fixed point using UNIT_DEC
             // Maximum "floating" value for generation
             uint maxFloatDelta = 10; // For example, deltas up to 10 tokens
@@ -486,7 +592,7 @@ contract LMSRMarketMakerSimpleTest is Test {
             int[] memory deltas = new int[](2);
             deltas[0] = delta0; deltas[1] = delta1;
             int[] memory bals = new int[](2);
-            bals[0] = bal0; bals[1] = bal1;  
+            bals[0] = bal0; bals[1] = bal1;
             console.log(bals[0]);
             console.log(bals[1]);
             uint startGas = gasleft();
@@ -567,7 +673,7 @@ contract LMSRMarketMakerSimpleTest is Test {
             // see how gas behaves with heavily modified q values.
             // For this scenario, we just continue trading using the current q state
             // (which will change from iteration to iteration).
-            
+
             // Use relatively small deltas to avoid heavily distorting q
             int delta0 = _generateFixedPoint(seed >> 2, 5);
             int delta1 = _generateFixedPoint(seed >> 4, 5);
@@ -685,7 +791,7 @@ contract LMSRMarketMakerSimpleTest is Test {
         deltas[0] = 0;
         deltas[1] = int(200 * marketMaker.UNIT_DEC());
         marketMaker.calcNetCost(deltas, bals);
-        
+
         for (uint i = 1; i <= 50; i++) {
             uint seed = uint(keccak256(abi.encodePacked(i + 9000)));
             int delta0 = _generateFixedPoint(seed, 1);
@@ -726,14 +832,4 @@ contract LMSRMarketMakerSimpleTest is Test {
         }
         vm.stopBroadcast();
     }*/
-
-
-
-
-
-
-
-
-
-
-} 
+}

@@ -9,6 +9,12 @@ out/
 
 # Docs
 docs/
+.direnv
+node_modules
 
 # Dotenv file
 .env
+
+
+# Soldeer
+/dependencies

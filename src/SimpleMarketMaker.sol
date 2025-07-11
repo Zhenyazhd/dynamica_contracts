@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title MarketMaker
@@ -11,38 +11,31 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 contract MarketMaker is Ownable {
     // ============ Constants ============
-    
+
     /// @notice Maximum fee that can be set (100%)
     uint64 public constant FEE_RANGE = 10_000;
 
     // ============ Events ============
-    
+
     /// @notice Emitted when the market maker is created
     event MarketMakerCreated(uint256 initialFunding);
-    
+
     /// @notice Emitted when funding is changed
     event FundingChanged(uint256 fundingChange, uint256 outcomeTokenAmounts);
-    
+
     /// @notice Emitted when fee is changed
     event FeeChanged(uint64 newFee);
-    
+
     /// @notice Emitted when fees are withdrawn
     event FeeWithdrawal(uint256 fees);
-    
+
     /// @notice Emitted when a trade is made
     event OutcomeTokenTrade(
-        address indexed trader,
-        int256[] outcomeTokenAmounts,
-        int256 outcomeTokenNetCost,
-        uint256 marketFees
+        address indexed trader, int256[] outcomeTokenAmounts, int256 outcomeTokenNetCost, uint256 marketFees
     );
 
     /// @notice Emitted when a condition is prepared
-    event ConditionPreparation(
-        address indexed oracle,
-        string indexed question,
-        uint256 outcomeSlotCount
-    );
+    event ConditionPreparation(address indexed oracle, string indexed question, uint256 outcomeSlotCount);
 
     /// @notice Emitted when payout is redeemed
     event PayoutRedemption(
@@ -55,42 +48,42 @@ contract MarketMaker is Ownable {
     );
 
     // ============ State Variables ============
-    
+
     /// @notice Array of payout numerators for each outcome
     uint256[] public payoutNumerators;
-    
+
     /// @notice Payout denominator
     uint256 public payoutDenominator;
-    
+
     /// @notice The collateral token used for trading
     IERC20 public collateralToken;
-    
+
     /// @notice The question that this prediction market resolves
     string public question;
-    
+
     /// @notice The fee rate (in basis points)
     uint64 public fee;
-    
+
     /// @notice Total funding in the market
     uint256 public funding;
-    
+
     /// @notice Total fees received
     uint256 public feeReceived;
-    
+
     /// @notice Array of outcome token amounts in the pool
     uint256[] public outcomeTokenAmounts;
 
     /// @notice Oracle address that can resolve the market
     address public oracleManager;
-    
+
     /// @notice Mapping from user address to their shares for each outcome
     mapping(address => int256[]) public userShares;
-    
+
     /// @notice Number of outcome slots
     uint256 public outcomeSlotCount;
 
     // ============ Constructor ============
-    
+
     /**
      * @notice Constructor for MarketMaker
      * @param _collateralToken The collateral token to use
@@ -99,39 +92,35 @@ contract MarketMaker is Ownable {
     constructor(IERC20 _collateralToken, uint64 _fee) Ownable(msg.sender) {
         require(_fee < FEE_RANGE, "Fee must be less than FEE_RANGE");
         require(address(_collateralToken) != address(0), "Invalid collateral token");
-        
+
         collateralToken = _collateralToken;
         fee = _fee;
-        
+
         emit MarketMakerCreated(0);
     }
 
     // ============ External Functions ============
-    
+
     /**
      * @notice Prepares a condition for trading
      * @param oracle The oracle address that will resolve the condition
      * @param _question The question text that this market resolves
      * @param _outcomeSlotCount The number of possible outcomes
      */
-    function prepareCondition(
-        address oracle,
-        string calldata _question,
-        uint256 _outcomeSlotCount
-    ) external {
+    function prepareCondition(address oracle, string calldata _question, uint256 _outcomeSlotCount) external {
         require(_outcomeSlotCount <= 5, "Too many outcome slots");
         require(_outcomeSlotCount > 1, "Must have more than one outcome slot");
         require(oracle != address(0), "Invalid oracle address");
         require(bytes(_question).length > 0, "Question cannot be empty");
         require(payoutNumerators.length == 0, "Condition already prepared");
-        
+
         oracleManager = oracle;
         question = _question;
         outcomeSlotCount = _outcomeSlotCount;
-        
+
         payoutNumerators = new uint256[](_outcomeSlotCount);
         outcomeTokenAmounts = new uint256[](_outcomeSlotCount);
-        
+
         emit ConditionPreparation(oracle, question, _outcomeSlotCount);
     }
 
@@ -143,12 +132,12 @@ contract MarketMaker is Ownable {
     function initializeMarket(uint256 fundingChange, uint256 outcomeTokenAmounts_) external onlyOwner {
         require(fundingChange != 0, "Funding change must be non-zero");
         require(collateralToken.transferFrom(msg.sender, address(this), fundingChange), "Transfer failed");
-        
+
         funding += fundingChange;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             outcomeTokenAmounts[i] = outcomeTokenAmounts_;
         }
-        
+
         emit FundingChanged(fundingChange, outcomeTokenAmounts_);
     }
 
@@ -158,35 +147,29 @@ contract MarketMaker is Ownable {
      */
     function makePrediction(int256[] calldata deltaOutcomeAmounts_) external {
         require(deltaOutcomeAmounts_.length == outcomeSlotCount, "Invalid outcome amount length");
-        
+
         // Initialize user shares array if needed
         if (userShares[msg.sender].length == 0) {
             userShares[msg.sender] = new int256[](outcomeSlotCount);
         }
-        
+
         // Check if user has enough shares to sell
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] < 0) {
-                require(
-                    userShares[msg.sender][i] >= -deltaOutcomeAmounts_[i],
-                    "Insufficient shares to sell"
-                );
+                require(userShares[msg.sender][i] >= -deltaOutcomeAmounts_[i], "Insufficient shares to sell");
             }
         }
-        
+
         // Calculate net cost of the trade
         int256 netCost = calcNetCost(deltaOutcomeAmounts_);
-        
+
         // Handle fee calculation and token transfers
         uint256 feeAmount = 0;
         if (netCost > 0) {
             // User is buying - they need to pay
             uint256 shouldPay = uint256(netCost) * FEE_RANGE / (FEE_RANGE - fee);
             feeReceived += (shouldPay - uint256(netCost));
-            require(
-                collateralToken.transferFrom(msg.sender, address(this), uint256(netCost)),
-                "Transfer failed"
-            );
+            require(collateralToken.transferFrom(msg.sender, address(this), uint256(netCost)), "Transfer failed");
         } else {
             // User is selling - they receive payout
             uint256 absoluteNetCost = uint256(-netCost);
@@ -195,7 +178,7 @@ contract MarketMaker is Ownable {
             uint256 payoutAmount = absoluteNetCost - feeAmount;
             require(collateralToken.transfer(msg.sender, payoutAmount), "Transfer failed");
         }
-        
+
         // Update token amounts in pool
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] > 0) {
@@ -204,15 +187,15 @@ contract MarketMaker is Ownable {
                 outcomeTokenAmounts[i] -= uint256(-deltaOutcomeAmounts_[i]);
             }
         }
-        
+
         // Update user shares
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             userShares[msg.sender][i] += deltaOutcomeAmounts_[i];
         }
-        
+
         emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
     }
-    
+
     /**
      * @notice Closes the market by resolving the condition
      * @param payouts Array of payout numerators for each outcome
@@ -232,7 +215,7 @@ contract MarketMaker is Ownable {
             require(payoutNumerators[i] == 0, "Payout numerator already set");
             payoutNumerators[i] = numerator;
         }
-        
+
         require(denominator > 0, "Payout is all zeroes");
         payoutDenominator = denominator;
     }
@@ -269,15 +252,14 @@ contract MarketMaker is Ownable {
     }
 
     // ============ Public Functions ============
-    
+
     /**
      * @notice Calculates the net cost for a trade
      * @param outcomeTokenAmounts Array of token amount changes
      * @return netCost The net cost of the trade
      */
-    function calcNetCost(int256[] memory outcomeTokenAmounts) public virtual view returns (int256 netCost) {
-    }
-    
+    function calcNetCost(int256[] memory outcomeTokenAmounts) public view virtual returns (int256 netCost) {}
+
     /**
      * @notice Changes the fee rate
      * @param _fee The new fee rate
@@ -287,7 +269,7 @@ contract MarketMaker is Ownable {
         fee = _fee;
         emit FeeChanged(fee);
     }
-    
+
     /**
      * @notice Withdraws accumulated fees
      */
