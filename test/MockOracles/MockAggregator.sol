@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {AggregatorV3Interface} from "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from
+    "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 /**
  * @title MockAggregator
@@ -15,12 +16,7 @@ contract MockAggregator is AggregatorV3Interface {
     uint256 private _updatedAt;
     uint80 private _roundId;
 
-    constructor(
-        int256 price,
-        uint8 decimals,
-        string memory description,
-        uint256 version
-    ) {
+    constructor(int256 price, uint8 decimals, string memory description, uint256 version) {
         _price = price;
         _decimals = decimals;
         _description = description;
@@ -52,13 +48,7 @@ contract MockAggregator is AggregatorV3Interface {
         external
         view
         override
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        )
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
         return (_roundId, _price, _updatedAt, block.timestamp - 1, _roundId);
     }
@@ -91,14 +81,8 @@ contract MockAggregator is AggregatorV3Interface {
         external
         view
         override
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        )
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
         revert("MockAggregator: getRoundData not implemented");
     }
-} 
+}

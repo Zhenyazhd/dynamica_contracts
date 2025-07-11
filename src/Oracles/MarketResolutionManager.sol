@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import { Ownable } from "@openzeppelin-contracts/access/Ownable.sol";
-import { IDynamica } from "../interfaces/IDynamica.sol";
-import { IMarketResolutionModule } from "../interfaces/IMarketResolutionModule.sol";
-import { console } from "forge-std/src/console.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
+import {IDynamica} from "../interfaces/IDynamica.sol";
+import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
+import {console} from "forge-std/src/console.sol";
 
 /**
  * @title MarketResolutionManager
  * @dev Manages the resolution of prediction markets through various resolution modules
  * @notice This contract acts as a central coordinator for market resolution, allowing
  * different types of resolution modules to handle market outcomes
- * 
+ *
  * The contract provides:
  * - Market registration with specific resolution modules
  * - Market resolution through configured modules
@@ -19,7 +19,7 @@ import { console } from "forge-std/src/console.sol";
  */
 contract MarketResolutionManager is Ownable {
     // ============ State Variables ============
-    
+
     /// @notice Address of the factory contract that can register markets
     address public factory;
 
@@ -27,19 +27,15 @@ contract MarketResolutionManager is Ownable {
     mapping(bytes32 => IMarketResolutionModule.MarketResolutionConfig) public marketConfigs;
 
     // ============ Events ============
-    
+
     /// @notice Emitted when a new market is registered
-    event MarketRegistered(
-        bytes32 indexed questionId, 
-        address indexed marketMaker, 
-        address indexed resolutionModule
-    );
-    
+    event MarketRegistered(bytes32 indexed questionId, address indexed marketMaker, address indexed resolutionModule);
+
     /// @notice Emitted when a market is resolved with payout ratios
     event MarketResolved(bytes32 indexed questionId, uint256[] payouts);
 
     // ============ Modifiers ============
-    
+
     /// @notice Ensures only the factory contract can call the function
     modifier onlyFactory() {
         require(msg.sender == factory, "Only factory can call this function");
@@ -47,7 +43,7 @@ contract MarketResolutionManager is Ownable {
     }
 
     // ============ Constructor ============
-    
+
     /**
      * @notice Initializes the MarketResolutionManager
      * @param owner The owner of the contract
@@ -59,7 +55,7 @@ contract MarketResolutionManager is Ownable {
     }
 
     // ============ External Functions ============
-    
+
     /**
      * @notice Registers a new market with its resolution parameters
      * @param questionId Unique question ID (e.g., keccak256("ETH_BTC_PRICE_10_JULY_2025"))
@@ -78,12 +74,7 @@ contract MarketResolutionManager is Ownable {
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
         bytes calldata resolutionData
     ) external onlyFactory {
-        _validateMarketRegistration(
-            questionId, 
-            marketMaker, 
-            outcomeSlotCount, 
-            resolutionModule
-        );
+        _validateMarketRegistration(questionId, marketMaker, outcomeSlotCount, resolutionModule);
 
         marketConfigs[questionId] = IMarketResolutionModule.MarketResolutionConfig(
             marketMaker,
@@ -105,7 +96,7 @@ contract MarketResolutionManager is Ownable {
      */
     function resolveMarket(bytes32 questionId) external onlyOwner {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
-        
+
         _validateMarketResolution(config, questionId);
 
         // Call the resolution module to get payout ratios
@@ -116,12 +107,12 @@ contract MarketResolutionManager is Ownable {
 
         // Mark the market as resolved
         config.isResolved = true;
-        
+
         emit MarketResolved(questionId, payouts);
     }
 
     // ============ Private Functions ============
-    
+
     /**
      * @notice Validates market registration parameters
      * @param questionId The question ID to validate
@@ -135,10 +126,7 @@ contract MarketResolutionManager is Ownable {
         uint256 outcomeSlotCount,
         address resolutionModule
     ) private view {
-        require(
-            marketConfigs[questionId].marketMaker == address(0), 
-            "Market already registered"
-        );
+        require(marketConfigs[questionId].marketMaker == address(0), "Market already registered");
         require(marketMaker != address(0), "Invalid market maker address");
         require(resolutionModule != address(0), "Invalid resolution module address");
         require(outcomeSlotCount > 1, "Must have more than one outcome slot");
@@ -163,10 +151,10 @@ contract MarketResolutionManager is Ownable {
      * @param questionId The question ID for resolution
      * @return payouts Array of payout numerators for each outcome
      */
-    function _getMarketPayouts(
-        IMarketResolutionModule.MarketResolutionConfig storage config,
-        bytes32 questionId
-    ) private returns (uint256[] memory payouts) {
+    function _getMarketPayouts(IMarketResolutionModule.MarketResolutionConfig storage config, bytes32 questionId)
+        private
+        returns (uint256[] memory payouts)
+    {
         payouts = IMarketResolutionModule(config.resolutionModule).resolveMarket(
             questionId,
             config.marketMaker, // Pass MarketMaker for context if needed

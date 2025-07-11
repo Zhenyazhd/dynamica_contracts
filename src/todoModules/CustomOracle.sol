@@ -27,7 +27,7 @@ interface IDriverRatingsList {
      * @param data The proof containing the data to add
      */
     function addData(IWeb2Json.Proof calldata data) external;
-    
+
     /**
      * @notice Retrieves all stored data
      * @return Array of all stored ratings data
@@ -56,20 +56,20 @@ interface IMarketMaker {
  */
 contract DataFeed is Ownable {
     // ============ Constants ============
-    
+
     /// @notice Multiplier for rating precision (1000)
-    uint256 public constant MULTIPLIER = 10**3;
+    uint256 public constant MULTIPLIER = 10 ** 3;
 
     // ============ State Variables ============
-    
+
     /// @notice Array of stored ratings
     uint256[] public ratings;
-    
+
     /// @notice Current market index
     uint256 public index = 1;
 
     // ============ Structs ============
-    
+
     /**
      * @title Market
      * @dev Structure representing a prediction market
@@ -82,16 +82,16 @@ contract DataFeed is Ownable {
     }
 
     // ============ Mappings ============
-    
+
     /// @notice Mapping from market index to market data
     mapping(uint256 => Market) public market;
 
     // ============ Constructor ============
-    
+
     constructor() Ownable(msg.sender) {}
 
     // ============ External Functions ============
-    
+
     /**
      * @notice Registers a new prediction market
      * @param question The market question
@@ -108,7 +108,7 @@ contract DataFeed is Ownable {
         require(marketMaker != address(0), "Invalid market maker address");
         require(outcomeSlotCount > 0, "Invalid outcome slot count");
         require(tokens.length > 0, "Tokens array cannot be empty");
-        
+
         market[index] = Market(marketMaker, outcomeSlotCount, tokens, false);
         index++;
     }
@@ -123,10 +123,7 @@ contract DataFeed is Ownable {
         require(!market[index - 1].isClosed, "Market already closed");
 
         // Parse ratings from the proof data
-        uint256[] memory parsedRatings = abi.decode(
-            data.data.responseBody.abiEncodedData,
-            (DataTransportObject)
-        ).data;
+        uint256[] memory parsedRatings = abi.decode(data.data.responseBody.abiEncodedData, (DataTransportObject)).data;
 
         require(parsedRatings.length > 0, "No ratings data provided");
 
@@ -134,14 +131,14 @@ contract DataFeed is Ownable {
         for (uint256 i = 0; i < parsedRatings.length; i++) {
             ratings.push(parsedRatings[i] * MULTIPLIER);
         }
-        
+
         // Close the market and trigger payout
         market[index - 1].isClosed = true;
         IMarketMaker(market[index - 1].marketMaker).closeMarket(ratings);
     }
 
     // ============ Public Functions ============
-    
+
     /**
      * @notice Retrieves all stored ratings data
      * @return Array of all stored ratings
@@ -151,15 +148,13 @@ contract DataFeed is Ownable {
     }
 
     // ============ Private Functions ============
-    
+
     /**
      * @notice Validates a JSON API proof using FDC verification
      * @param _proof The proof to validate
      * @return True if the proof is valid
      */
-    function isJsonApiProofValid(
-        IWeb2Json.Proof calldata _proof
-    ) private view returns (bool) {
+    function isJsonApiProofValid(IWeb2Json.Proof calldata _proof) private view returns (bool) {
         return ContractRegistry.getFdcVerification().verifyJsonApi(_proof);
     }
 }

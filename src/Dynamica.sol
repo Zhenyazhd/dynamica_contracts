@@ -77,11 +77,7 @@ contract Dynamica is MarketMaker {
         EXP_LIMIT_DEC = sd((int256(config.expLimit) * UNIT_DEC) / 100);
 
         initializeMarket(
-            config.oracle,
-            config.question,
-            config.outcomeSlotCount,
-            config.startFunding,
-            config.outcomeTokenAmounts
+            config.oracle, config.question, config.outcomeSlotCount, config.startFunding, config.outcomeTokenAmounts
         );
     }
 
@@ -93,9 +89,7 @@ contract Dynamica is MarketMaker {
      * @return priceWad The marginal price in fixed-point format
      * @dev This function uses the current market state to calculate prices
      */
-    function calcMarginalPrice(
-        uint8 outcomeTokenIndex
-    ) public view returns (int256 priceWad) {
+    function calcMarginalPrice(uint8 outcomeTokenIndex) public view returns (int256 priceWad) {
         uint256 n = outcomeSlotCount;
         require(outcomeTokenIndex < n, "Invalid outcome index");
 
@@ -142,14 +136,9 @@ contract Dynamica is MarketMaker {
      * Positive netCost means the trader pays collateral tokens
      * Negative netCost means the trader receives collateral tokens
      */
-    function calcNetCost(
-        int256[] memory deltaOutcomeAmounts
-    ) public view override returns (int256 netCost) {
+    function calcNetCost(int256[] memory deltaOutcomeAmounts) public view override returns (int256 netCost) {
         uint256 n = outcomeSlotCount;
-        require(
-            deltaOutcomeAmounts.length == n,
-            "Invalid outcome amount length"
-        );
+        require(deltaOutcomeAmounts.length == n, "Invalid outcome amount length");
 
         // Calculate new state after the trade
         int256[] memory qNew = new int256[](n);
@@ -193,10 +182,7 @@ contract Dynamica is MarketMaker {
      * - b = α * Σ(q_j) is the liquidity parameter
      * - α is the alpha parameter controlling market depth
      */
-    function _marginalPriceFromMemory(
-        int256[] memory qs,
-        uint8 idx
-    ) internal view returns (int256 priceWad) {
+    function _marginalPriceFromMemory(int256[] memory qs, uint8 idx) internal view returns (int256 priceWad) {
         uint256 n = qs.length;
         require(idx < n, "Invalid outcome index");
 
@@ -260,10 +246,7 @@ contract Dynamica is MarketMaker {
      *
      * This prevents overflow when q_i values are large
      */
-    function sumExp(
-        SD59x18[] memory q,
-        SD59x18 b
-    ) internal view returns (SD59x18 sum, SD59x18 offset) {
+    function sumExp(SD59x18[] memory q, SD59x18 b) internal view returns (SD59x18 sum, SD59x18 offset) {
         uint256 n = q.length;
 
         // Normalize q by dividing by b
