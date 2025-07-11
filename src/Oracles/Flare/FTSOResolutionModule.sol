@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {FtsoV2Interface} from "flare-periphery/src/coston2/FtsoV2Interface.sol"; 
+import {FtsoV2Interface} from "flare-periphery/src/coston2/FtsoV2Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
-import { Initializable } from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
+import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
 // Структура для параметров FTSO
 struct FTSOConfig {
-    bytes21[] ftsoIds;    // ID FTSO для каждого исхода
-    uint256[] staleness;  // Максимальное время устаревания для каждого ID
+    bytes21[] ftsoIds; // ID FTSO для каждого исхода
+    uint256[] staleness; // Максимальное время устаревания для каждого ID
 }
 
 contract FTSOResolutionModule is Initializable, IMarketResolutionModule {
@@ -33,17 +33,16 @@ contract FTSOResolutionModule is Initializable, IMarketResolutionModule {
 
     /**
      * @notice Реализация интерфейса IMarketResolutionModule.
-     * @dev Декодирует resolutionData, получает данные от FTSO и вычисляет payout.   
+     * @dev Декодирует resolutionData, получает данные от FTSO и вычисляет payout.
      * @param outcomeSlotCount Количество исходов
      * @param resolutionData Закодированные FTSOConfig
      * @return payouts Массив результатов для MarketMaker
      */
-    function resolveMarket(
-        bytes32,
-        address,
-        uint256 outcomeSlotCount,
-        bytes calldata resolutionData
-    ) external onlyMarketResolutionManager returns (uint256[] memory payouts) {
+    function resolveMarket(bytes32, address, uint256 outcomeSlotCount, bytes calldata resolutionData)
+        external
+        onlyMarketResolutionManager
+        returns (uint256[] memory payouts)
+    {
         FTSOConfig memory config = abi.decode(resolutionData, (FTSOConfig));
         require(config.ftsoIds.length == outcomeSlotCount, "Config mismatch: ftsoIds");
         require(config.staleness.length == outcomeSlotCount, "Config mismatch: staleness");
@@ -62,7 +61,7 @@ contract FTSOResolutionModule is Initializable, IMarketResolutionModule {
         require(denominator > 0, "Denominator cannot be zero");
 
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            valuesAdjusted[i] = (valuesAdjusted[i] * 10**18) / denominator;
+            valuesAdjusted[i] = (valuesAdjusted[i] * 10 ** 18) / denominator;
         }
 
         return payouts;
