@@ -21,19 +21,14 @@ contract MockFtsoV2 is FtsoV2Interface {
     /**
      * @dev Set feed data for testing
      */
-    function setFeedData(
-        bytes21 feedId,
-        uint256 value,
-        int8 decimals,
-        uint64 timestamp
-    ) external {
+    function setFeedData(bytes21 feedId, uint256 value, int8 decimals, uint64 timestamp) external {
         _feedValues[feedId] = value;
         _feedDecimals[feedId] = decimals;
         _feedTimestamps[feedId] = timestamp;
-        
+
         // Add to supported feed ids if not already present
         bool exists = false;
-        for (uint i = 0; i < _supportedFeedIds.length; i++) {
+        for (uint256 i = 0; i < _supportedFeedIds.length; i++) {
             if (_supportedFeedIds[i] == feedId) {
                 exists = true;
                 break;
@@ -61,7 +56,7 @@ contract MockFtsoV2 is FtsoV2Interface {
     /**
      * @dev Get feed id changes (empty for mock)
      */
-    function getFeedIdChanges() external view override returns (FeedIdChange[] memory) {
+    function getFeedIdChanges() external pure override returns (FeedIdChange[] memory) {
         return new FeedIdChange[](0);
     }
 
@@ -86,11 +81,7 @@ contract MockFtsoV2 is FtsoV2Interface {
         external
         payable
         override
-        returns (
-            uint256 _value,
-            int8 _decimals,
-            uint64 _timestamp
-        )
+        returns (uint256 _value, int8 _decimals, uint64 _timestamp)
     {
         return (_feedValues[_feedId], _feedDecimals[_feedId], _feedTimestamps[_feedId]);
     }
@@ -102,23 +93,19 @@ contract MockFtsoV2 is FtsoV2Interface {
         external
         payable
         override
-        returns (
-            uint256[] memory _values,
-            int8[] memory _decimals,
-            uint64 _timestamp
-        )
+        returns (uint256[] memory _values, int8[] memory _decimals, uint64 _timestamp)
     {
         _values = new uint256[](_feedIds.length);
         _decimals = new int8[](_feedIds.length);
-        
-        for (uint i = 0; i < _feedIds.length; i++) {
+
+        for (uint256 i = 0; i < _feedIds.length; i++) {
             _values[i] = _feedValues[_feedIds[i]];
             _decimals[i] = _feedDecimals[_feedIds[i]];
         }
-        
+
         // Return the latest timestamp among all feeds
         _timestamp = 0;
-        for (uint i = 0; i < _feedIds.length; i++) {
+        for (uint256 i = 0; i < _feedIds.length; i++) {
             if (_feedTimestamps[_feedIds[i]] > _timestamp) {
                 _timestamp = _feedTimestamps[_feedIds[i]];
             }
@@ -128,18 +115,10 @@ contract MockFtsoV2 is FtsoV2Interface {
     /**
      * @dev Get feed value in wei by id
      */
-    function getFeedByIdInWei(bytes21 _feedId)
-        external
-        payable
-        override
-        returns (
-            uint256 _value,
-            uint64 _timestamp
-        )
-    {
+    function getFeedByIdInWei(bytes21 _feedId) external payable override returns (uint256 _value, uint64 _timestamp) {
         uint256 baseValue = _feedValues[_feedId];
         int8 decimals = _feedDecimals[_feedId];
-        
+
         // Convert to wei (18 decimals)
         if (decimals < 18) {
             _value = baseValue * (10 ** (18 - uint8(decimals)));
@@ -148,7 +127,7 @@ contract MockFtsoV2 is FtsoV2Interface {
         } else {
             _value = baseValue;
         }
-        
+
         _timestamp = _feedTimestamps[_feedId];
     }
 
@@ -159,17 +138,14 @@ contract MockFtsoV2 is FtsoV2Interface {
         external
         payable
         override
-        returns (
-            uint256[] memory _values,
-            uint64 _timestamp
-        )
+        returns (uint256[] memory _values, uint64 _timestamp)
     {
         _values = new uint256[](_feedIds.length);
-        
-        for (uint i = 0; i < _feedIds.length; i++) {
+
+        for (uint256 i = 0; i < _feedIds.length; i++) {
             uint256 baseValue = _feedValues[_feedIds[i]];
             int8 decimals = _feedDecimals[_feedIds[i]];
-            
+
             // Convert to wei (18 decimals)
             if (decimals < 18) {
                 _values[i] = baseValue * (10 ** (18 - uint8(decimals)));
@@ -179,10 +155,10 @@ contract MockFtsoV2 is FtsoV2Interface {
                 _values[i] = baseValue;
             }
         }
-        
+
         // Return the latest timestamp among all feeds
         _timestamp = 0;
-        for (uint i = 0; i < _feedIds.length; i++) {
+        for (uint256 i = 0; i < _feedIds.length; i++) {
             if (_feedTimestamps[_feedIds[i]] > _timestamp) {
                 _timestamp = _feedTimestamps[_feedIds[i]];
             }
@@ -195,4 +171,4 @@ contract MockFtsoV2 is FtsoV2Interface {
     function verifyFeedData(FeedDataWithProof calldata) external pure override returns (bool) {
         return true;
     }
-} 
+}

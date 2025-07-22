@@ -2,6 +2,7 @@
 src = "src"
 out = "out"
 libs = ["dependencies"]
+ffi = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -29,3 +30,6 @@ flare-periphery = { version = "latest", git = "https://github.com/flare-foundati
 "@openzeppelin-contracts-upgradeable" = "5.4.0-rc.1"
 "@prb-math" = "4.1.0"
 smartcontractkit-chainlink = "2.24.0"
+
+[rpc_endpoints]
+hedera = "https://testnet.hashio.io/api"
