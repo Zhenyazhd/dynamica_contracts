@@ -1,0 +1,6 @@
+[submodule "dependencies/hedera-smart-contracts"]
+	path = dependencies/hedera-smart-contracts
+	url = https://github.com/hashgraph/hedera-smart-contracts
+[submodule "dependencies/hedera-forking"]
+	path = dependencies/hedera-forking
+	url = https://github.com/hashgraph/hedera-forking
