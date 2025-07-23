@@ -1,0 +1,3 @@
+[submodule "dependencies/hedera-forking"]
+	path = dependencies/hedera-forking
+	url = https://github.com/hashgraph/hedera-forking
