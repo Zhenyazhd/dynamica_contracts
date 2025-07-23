@@ -87,9 +87,6 @@ interface IDynamica {
     /// @notice Total fees received
     function feeReceived() external view returns (uint256);
 
-    /// @notice Array of outcome token amounts in the pool
-    function outcomeTokenAmounts(uint256) external view returns (uint256);
-
     /// @notice Oracle manager address
     function oracleManager() external view returns (address);
 

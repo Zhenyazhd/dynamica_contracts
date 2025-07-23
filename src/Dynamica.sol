@@ -107,8 +107,10 @@ contract Dynamica is MarketMaker {
 
         // Convert current outcome token amounts to SD59x18 format
         SD59x18[] memory qWad = new SD59x18[](n);
+        int256[] memory outcomeTokenAmounts_ = new int256[](n);
         for (uint256 i = 0; i < n; i++) {
-            int256 qi = int256(outcomeTokenAmounts[i]);
+            outcomeTokenAmounts_[i] = int256(IERC20(outcomeTokenAddresses[i]).totalSupply());
+            int256 qi = int256(outcomeTokenAmounts_[i]);
             qWad[i] = sd(qi * UNIT_DEC);
         }
 
@@ -156,11 +158,13 @@ contract Dynamica is MarketMaker {
         int256[] memory qNew = new int256[](n);
         SD59x18[] memory balancesSd = new SD59x18[](n);
         SD59x18[] memory qNewSd = new SD59x18[](n);
+        int256[] memory outcomeTokenAmounts_ = new int256[](n);
 
         for (uint256 i = 0; i < n; i++) {
-            qNew[i] = int256(outcomeTokenAmounts[i]) + deltaOutcomeAmounts[i];
+            outcomeTokenAmounts_[i] = int256(IERC20(outcomeTokenAddresses[i]).totalSupply());
+            qNew[i] = int256(outcomeTokenAmounts_[i]) + deltaOutcomeAmounts[i];
             qNewSd[i] = sd(qNew[i] * UNIT_DEC);
-            balancesSd[i] = sd(int256(outcomeTokenAmounts[i]) * UNIT_DEC);
+            balancesSd[i] = sd(int256(outcomeTokenAmounts_[i]) * UNIT_DEC);
         }
 
         // Calculate liquidity parameters for old and new states

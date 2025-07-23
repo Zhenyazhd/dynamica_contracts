@@ -63,8 +63,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /// @notice Total fees received from trades
     uint256 public feeReceived;
 
-    /// @notice Array of outcome token amounts in the pool for each outcome
-    uint256[] public outcomeTokenAmounts;
     /// @notice Array of addresses for created outcome tokens
     address[] public outcomeTokenAddresses;
 
@@ -130,7 +128,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
 
         // Initialize arrays
         payoutNumerators = new uint256[](_outcomeSlotCount);
-        outcomeTokenAmounts = new uint256[](_outcomeSlotCount);
         usersOutcomes = new uint256[](_outcomeSlotCount);
         outcomeTokenAddresses = new address[](_outcomeSlotCount);
 
@@ -141,7 +138,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         uint256 valuePerToken = msg.value / 2;
         address tokenAddress;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            outcomeTokenAmounts[i] = _outcomeTokenAmounts;
             (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], int64(int256(_outcomeTokenAmounts)), 8);
             outcomeTokenAddresses[i] = tokenAddress;
         }
@@ -201,7 +197,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         uint256 feeAmount = _handleTradePayment(netCost);
 
         // Update pool and user state
-        _updateTokenAmounts(deltaOutcomeAmounts_);
         _updateUserShares(deltaOutcomeAmounts_);
 
         emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
@@ -226,8 +221,9 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         for (uint256 i = 0; i < _outcomeSlotCount; i++) {
             require(payoutNumerators[i] == 0, "Payout numerator already set");
             payoutNumerators[i] = payouts[i];
+            usersOutcomes[i] = IERC20(outcomeTokenAddresses[i]).totalSupply()
+                - IERC20(outcomeTokenAddresses[i]).balanceOf(address(this));
         }
-
         payoutDenominator = denominator;
         _sendMarketsSharesToOwner();
     }
@@ -345,22 +341,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     }
 
     /**
-     * @notice Updates token amounts in the pool
-     * @param deltaOutcomeAmounts_ Array of token amount changes
-     */
-    function _updateTokenAmounts(int256[] calldata deltaOutcomeAmounts_) private {
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            if (deltaOutcomeAmounts_[i] > 0) {
-                outcomeTokenAmounts[i] += uint256(deltaOutcomeAmounts_[i]);
-                usersOutcomes[i] += uint256(deltaOutcomeAmounts_[i]);
-            } else {
-                outcomeTokenAmounts[i] -= uint256(-deltaOutcomeAmounts_[i]);
-                usersOutcomes[i] -= uint256(-deltaOutcomeAmounts_[i]);
-            }
-        }
-    }
-
-    /**
      * @notice Updates user shares for each outcome
      * @param deltaOutcomeAmounts_ Array of token amount changes
      */
@@ -446,7 +426,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @return totalPayout The total payout amount
      */
     function _calculateTotalMarketPayout() private view returns (uint256 totalPayout) {
-        for (uint256 i = 0; i < outcomeTokenAmounts.length; i++) {
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
             totalPayout += (usersOutcomes[i] * payoutNumerators[i]) / payoutDenominator;
         }
     }
