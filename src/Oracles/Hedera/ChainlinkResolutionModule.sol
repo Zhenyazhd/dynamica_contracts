@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {AggregatorV3Interface} from "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from
+    "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
 import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
@@ -41,10 +42,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
 
     /// @notice Ensures only the market resolution manager can call the function
     modifier onlyMarketResolutionManager() {
-        require(
-            msg.sender == marketResolutionManager,
-            "Only market resolution manager can call this function"
-        );
+        require(msg.sender == marketResolutionManager, "Only market resolution manager can call this function");
         _;
     }
 
@@ -64,10 +62,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param _marketResolutionManager Address of the market resolution manager
      */
     function initialize(address _marketResolutionManager) public initializer {
-        require(
-            _marketResolutionManager != address(0),
-            "Invalid market resolution manager address"
-        );
+        require(_marketResolutionManager != address(0), "Invalid market resolution manager address");
         marketResolutionManager = _marketResolutionManager;
     }
 
@@ -87,10 +82,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         bytes calldata resolutionData
     ) external onlyMarketResolutionManager returns (uint256[] memory payouts) {
         // Decode the configuration data
-        ChainlinkConfig memory config = abi.decode(
-            resolutionData,
-            (ChainlinkConfig)
-        );
+        ChainlinkConfig memory config = abi.decode(resolutionData, (ChainlinkConfig));
 
         // Validate configuration consistency
         _validateConfig(config, outcomeSlotCount);
@@ -102,12 +94,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         uint64 currentTimestamp = uint64(block.timestamp);
 
         // Fetch and process price data from all feeds
-        uint256 denominator = _fetchAndProcessPrices(
-            config,
-            outcomeSlotCount,
-            currentTimestamp,
-            payouts
-        );
+        uint256 denominator = _fetchAndProcessPrices(config, outcomeSlotCount, currentTimestamp, payouts);
 
         // Normalize payouts to sum to 1e18
         _normalizePayouts(payouts, denominator);
@@ -125,22 +112,10 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param config The Chainlink configuration to validate
      * @param outcomeSlotCount The expected number of outcomes
      */
-    function _validateConfig(
-        ChainlinkConfig memory config,
-        uint256 outcomeSlotCount
-    ) private pure {
-        require(
-            config.priceFeedAddresses.length == outcomeSlotCount,
-            "Config mismatch: priceFeedAddresses"
-        );
-        require(
-            config.decimals.length == outcomeSlotCount,
-            "Config mismatch: decimals"
-        );
-        require(
-            config.staleness.length == outcomeSlotCount,
-            "Config mismatch: staleness"
-        );
+    function _validateConfig(ChainlinkConfig memory config, uint256 outcomeSlotCount) private pure {
+        require(config.priceFeedAddresses.length == outcomeSlotCount, "Config mismatch: priceFeedAddresses");
+        require(config.decimals.length == outcomeSlotCount, "Config mismatch: decimals");
+        require(config.staleness.length == outcomeSlotCount, "Config mismatch: staleness");
     }
 
     /**
@@ -158,19 +133,13 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         uint256[] memory payouts
     ) private view returns (uint256 denominator) {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            AggregatorV3Interface priceFeed = AggregatorV3Interface(
-                config.priceFeedAddresses[i]
-            );
+            AggregatorV3Interface priceFeed = AggregatorV3Interface(config.priceFeedAddresses[i]);
 
             // Fetch latest price data
-            (, int256 price, , uint256 updatedAt, ) = priceFeed
-                .latestRoundData();
+            (, int256 price,, uint256 updatedAt,) = priceFeed.latestRoundData();
 
             // Validate data freshness
-            require(
-                currentTimestamp - updatedAt <= config.staleness[i],
-                "Oracle data is stale"
-            );
+            require(currentTimestamp - updatedAt <= config.staleness[i], "Oracle data is stale");
 
             // Convert price to 18 decimal precision and add to payouts
             payouts[i] = uint256(price) * 10 ** (18 - config.decimals[i]);
@@ -185,10 +154,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param payouts Array of payout values to normalize
      * @param denominator The sum of all raw payout values
      */
-    function _normalizePayouts(
-        uint256[] memory payouts,
-        uint256 denominator
-    ) private pure {
+    function _normalizePayouts(uint256[] memory payouts, uint256 denominator) private pure {
         for (uint256 i = 0; i < payouts.length; i++) {
             payouts[i] = (payouts[i] * 1e18) / denominator;
         }
@@ -218,9 +184,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param payouts Array of payout values
      * @return maxIndex Index of the highest payout value
      */
-    function _findMaxPayoutIndex(
-        uint256[] memory payouts
-    ) private pure returns (uint256 maxIndex) {
+    function _findMaxPayoutIndex(uint256[] memory payouts) private pure returns (uint256 maxIndex) {
         for (uint256 i = 1; i < payouts.length; i++) {
             if (payouts[i] > payouts[maxIndex]) {
                 maxIndex = i;
