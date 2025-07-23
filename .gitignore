@@ -15,6 +15,7 @@ node_modules
 # Dotenv file
 .env
 
+lib/
 
 # Soldeer
 /dependencies

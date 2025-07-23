@@ -38,3 +38,4 @@ version = "2.24.0"
 url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink/2_24_0_30-05-2025_05:36:05_smartcontractkit-chainlink-2.24.zip"
 checksum = "e864db91b14cd00d7c99672d1f6eb15daffcdc5c76239ff5d68d3503959099cf"
 integrity = "b4113af4847d2c2eead63c7e11e37648c6d8eb870ad037b01c36756f4345ad09"
+
