@@ -1,6 +1,7 @@
 pragma solidity ^0.8.25;
 
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import {IERC20} from "../src/interfaces/IERC20.sol";
 
 contract MockToken is IERC20 {
     mapping(address => uint256) private _balances;
@@ -10,6 +11,10 @@ contract MockToken is IERC20 {
     string private _name = "Dinamica";
     string private _symbol = "DYN";
     uint8 private _decimals = 18;
+
+    constructor(uint8 decimals) {
+        _decimals = decimals;
+    }
 
     function mint(address to, uint256 amount) external {
         _balances[to] += amount;

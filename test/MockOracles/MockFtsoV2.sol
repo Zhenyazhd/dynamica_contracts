@@ -56,7 +56,7 @@ contract MockFtsoV2 is FtsoV2Interface {
     /**
      * @dev Get feed id changes (empty for mock)
      */
-    function getFeedIdChanges() external view override returns (FeedIdChange[] memory) {
+    function getFeedIdChanges() external pure override returns (FeedIdChange[] memory) {
         return new FeedIdChange[](0);
     }
 

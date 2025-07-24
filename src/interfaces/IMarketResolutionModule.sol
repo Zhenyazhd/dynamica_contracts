@@ -9,11 +9,12 @@ interface IMarketResolutionModule {
     }
 
     struct MarketResolutionConfig {
-        address marketMaker; // Адрес MarketMaker для этого вопроса
-        uint256 outcomeSlotCount; // Количество исходов
-        address resolutionModule; // Адрес модуля, который будет разрешать этот рынок
-        bytes resolutionData; // Данные, специфичные для модуля (например, какие пары Chainlink, какие токены FTSO)
-        bool isResolved; // Флаг, указывающий, что рынок уже разрешен
+        address marketMaker;
+        uint256 outcomeSlotCount;
+        address resolutionModule;
+        bytes resolutionData;
+        bool isResolved;
+        uint32 expirationTime;
         ResolutionModule resolutionModuleType;
     }
 

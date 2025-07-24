@@ -37,8 +37,8 @@ contract MockAggregator is AggregatorV3Interface {
     /**
      * @dev Set the timestamp for testing
      */
-    function setUpdatedAt(uint256 timestamp) external {
-        _updatedAt = timestamp;
+    function setUpdatedAt() external {
+        _updatedAt = block.timestamp;
     }
 
     /**
@@ -79,7 +79,7 @@ contract MockAggregator is AggregatorV3Interface {
      */
     function getRoundData(uint80 _id)
         external
-        view
+        pure
         override
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
