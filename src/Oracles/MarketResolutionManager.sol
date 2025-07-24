@@ -42,6 +42,11 @@ contract MarketResolutionManager is Ownable {
         _;
     }
 
+    modifier onlyWhenExpired(uint32 expirationTime) {
+        require(block.timestamp > expirationTime, "Market not expired");
+        _;
+    }
+
     // ============ Constructor ============
 
     /**
@@ -71,6 +76,7 @@ contract MarketResolutionManager is Ownable {
         address marketMaker,
         uint256 outcomeSlotCount,
         address resolutionModule,
+        uint32 expirationTime,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
         bytes calldata resolutionData
     ) external onlyFactory {
@@ -81,7 +87,8 @@ contract MarketResolutionManager is Ownable {
             outcomeSlotCount,
             resolutionModule,
             resolutionData,
-            false, // isResolved
+            false, // isResolve
+            expirationTime,
             resolutionModuleType
         );
 
@@ -94,7 +101,11 @@ contract MarketResolutionManager is Ownable {
      * @dev Only callable by the owner. Calls the resolution module and passes
      * the result to the MarketMaker contract
      */
-    function resolveMarket(bytes32 questionId) external onlyOwner {
+    function resolveMarket(bytes32 questionId)
+        external
+        onlyOwner
+        onlyWhenExpired(marketConfigs[questionId].expirationTime)
+    {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
 
         _validateMarketResolution(config, questionId);

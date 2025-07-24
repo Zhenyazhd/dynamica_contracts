@@ -30,6 +30,7 @@ flare-periphery = { version = "latest", git = "https://github.com/flare-foundati
 "@openzeppelin-contracts-upgradeable" = "5.4.0-rc.1"
 "@prb-math" = "4.1.0"
 smartcontractkit-chainlink = "2.24.0"
+hashgraph-hedera-forking = "0.1.2"
 
 [rpc_endpoints]
 hedera = "https://testnet.hashio.io/api"

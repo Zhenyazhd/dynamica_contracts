@@ -26,6 +26,13 @@ checksum = "8d9e0a885fa8ee6429a4d344aeb6799119f6a94c7c4fe6f188df79b0dce294ba"
 integrity = "9e60fdba82bc374df80db7f2951faff6467b9091873004a3d314cf0c084b3c7d"
 
 [[dependencies]]
+name = "hashgraph-hedera-forking"
+version = "0.1.2"
+url = "https://soldeer-revisions.s3.amazonaws.com/hashgraph-hedera-forking/0_1_2_17-04-2025_16:53:04_hashgraph-hedera-forking-0.1.zip"
+checksum = "079fc1e6bf3cae1ad7bca16451902462151644aee8f9d83a99a20a5f6be882a7"
+integrity = "58266f3382f3cfb4ce7b052c6e722eb2b96498a6ac723fb2d27c81f645cf2835"
+
+[[dependencies]]
 name = "smartcontractkit-chainlink"
 version = "2.24.0"
 url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink/2_24_0_30-05-2025_05:36:05_smartcontractkit-chainlink-2.24.zip"

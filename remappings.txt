@@ -1,9 +1,10 @@
-@solarity/solidity-lib=dependencies/@solarity/solidity-lib/
-hedera-forking/=dependencies/hedera-forking
 @hashgraph/hedera-token-service/=dependencies/hedera-smart-contracts/contracts/
 @openzeppelin-contracts-upgradeable/=dependencies/@openzeppelin-contracts-upgradeable-5.4.0-rc.1/
 @openzeppelin-contracts/=dependencies/@openzeppelin-contracts-5.4.0-rc.1/
 @prb-math/=dependencies/@prb-math-4.1.0/
+@solarity/solidity-lib=dependencies/@solarity/solidity-lib/
 flare-periphery/=dependencies/flare-periphery-latest/
 forge-std/=dependencies/forge-std-1.9.7/
+hashgraph-hedera-forking/=dependencies/hashgraph-hedera-forking-0.1.2/
+hedera-forking/=dependencies/hedera-forking
 smartcontractkit-chainlink/=dependencies/smartcontractkit-chainlink-2.24.0/

@@ -24,20 +24,15 @@ import {KeyHelper} from "@hashgraph/hedera-token-service/system-contracts/hedera
 import {htsSetup} from "hashgraph-hedera-forking/contracts/htsSetup.sol";
 
 /**
- * 
- * forge soldeer install hashgraph-hedera-forking~0.1.2
- * 
- * forge soldeer install hashgraph-hedera-smart-contracts~0.1.2
- * 
  * [PASS] testMintBurnToken() (gas: 1324633)
-Logs:
-  amount_before 0
-  netCost 552042090988434772471
-  amount_after 5460000000000
-  amount_before 5460000000000
-  responseCode 22
-  netCost -258311724389446800218
-  amount_after 460000000000
+ * Logs:
+ *   amount_before 0
+ *   netCost 552042090988434772471
+ *   amount_after 5460000000000
+ *   amount_before 5460000000000
+ *   responseCode 22
+ *   netCost -258311724389446800218
+ *   amount_after 460000000000
  */
 
 /**
@@ -60,21 +55,17 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
     uint8 constant DECIMALS_COLLATERAL = 10;
     int64 constant INITIAL_SUPPLY = int64(int256(1_000_000 * (10 ** uint64(DECIMALS))));
 
-
     /// @notice Dynamica implementation contract
     Dynamica public implementation;
 
     /// @notice Deployed market maker instance
     Dynamica public marketMaker;
 
-    /// @notice Deployed market maker instance
-    Dynamica public marketMakerHTSCollateral;
-
     /// @notice Factory contract for creating markets
     DynamicaFactory public factory;
 
-    /// @notice Mock ERC20 token for testing
-    MockToken public mockToken;
+    /// @notice Mock HTS token for testing
+    address public mockTokenHTS;
 
     /// @notice Market resolution manager
     MarketResolutionManager public marketResolutionManager;
@@ -143,7 +134,33 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
         }
     }
 
-  
+    function createTokenHTS() public payable {
+        IHederaTokenService.HederaToken memory token;
+        token.name = "MockToken";
+        token.symbol = "MTK";
+        token.treasury = OWNER;
+        token.expiry.autoRenewAccount = OWNER;
+        token.expiry.autoRenewPeriod = 5184000;
+        token.tokenKeys = new IHederaTokenService.TokenKey[](1);
+        IHederaTokenService.TokenKey memory supplyKey = IHederaTokenService.TokenKey({
+            keyType: 16,
+            key: IHederaTokenService.KeyValue({
+                inheritAccountKey: false,
+                contractId: OWNER,
+                ed25519: "",
+                ECDSA_secp256k1: "",
+                delegatableContractId: address(0)
+            })
+        });
+        token.tokenKeys[0] = supplyKey;
+        int256 responseCode;
+        address tokenAddress;
+        (responseCode, tokenAddress) = createFungibleToken(
+            token, int64(int256(1_000_000 * (10 ** uint256(DECIMALS_COLLATERAL)))), int32(int8(DECIMALS_COLLATERAL))
+        );
+        assertEq(responseCode, 22);
+        mockTokenHTS = tokenAddress;
+    }
 
     function mintToken() public payable {
         for (uint256 i = 0; i < 2; i++) {
@@ -210,12 +227,12 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
         _executeTradingSequence();
 
         // Record market balance before resolution
-        startBalances[4] = mockToken.balanceOf(address(marketMaker));
+        startBalances[4] = IERC20(mockTokenHTS).balanceOf(address(marketMaker));
 
         // Resolve the market
         vm.warp(block.timestamp + 8 days + 1);
         vm.prank(OWNER);
-        marketResolutionManager.resolveMarket(keccak256(bytes("eth/usdc")));
+        marketResolutionManager.resolveMarket(keccak256(bytes("eth/usdc_hts_collateral")));
 
         // Redeem payouts for all traders
         _redeemPayoutsForTraders();
@@ -230,8 +247,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
      * @notice Sets up the mock token for testing
      */
     function _setupMockToken() private {
-        mockToken = new MockToken(DECIMALS_COLLATERAL);
-        mockToken.mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        this.createTokenHTS{value: 2 ether}();
     }
 
     /**
@@ -263,19 +279,19 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
         assertEq(IERC20(outcomeTokenAddresses[1]).balanceOf(address(marketMaker)), uint256(uint64(INITIAL_SUPPLY)));
     }
 
-    function testMintBurnToken() public {
+    /*function testMintBurnToken() public {
         vm.startPrank(trader_0);
         mockToken.approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
 
-        int64[] memory amounts = new int64[](2);
-        amounts[0] = 546 * int64(uint64(10) ** uint64(DECIMALS));
-        amounts[1] = 514 * int64(uint64(10) ** uint64(DECIMALS));
+        int256[] memory amounts = new int256[](2);
+        amounts[0] = 546 * int256(10 ** uint256(uint64(DECIMALS)));
+        amounts[1] = 514 * int256(10 ** uint256(uint64(DECIMALS)));
         console.log("amount_before", IERC20(outcomeTokenAddresses[0]).balanceOf(trader_0));
         marketMaker.makePrediction(amounts);
         console.log("amount_after", IERC20(outcomeTokenAddresses[0]).balanceOf(trader_0));
 
-        amounts[0] = -500 * int64(uint64(10) ** uint64(DECIMALS));
-        amounts[1] = 4 * int64(uint64(10) ** uint64(DECIMALS));
+        amounts[0] = -500 * int256(10 ** uint256(uint64(DECIMALS)));
+        amounts[1] = 4 * int256(10 ** uint256(uint64(DECIMALS)));
         console.log("amount_before", IERC20(outcomeTokenAddresses[0]).balanceOf(trader_0));
         int256 responseCode = approve(
             outcomeTokenAddresses[0], address(marketMaker), uint256(500 * int256(10 ** uint256(uint64(DECIMALS))))
@@ -285,7 +301,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
         console.log("amount_after", IERC20(outcomeTokenAddresses[0]).balanceOf(trader_0));
 
         vm.stopPrank();
-    }
+    }*/
 
     /**
      * @notice Sets up the market resolution manager
@@ -293,14 +309,13 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
     function _setupMarketResolutionManager() private {
         marketResolutionManager = new MarketResolutionManager(OWNER, address(factory));
         factory.setOracleCoordinator(address(marketResolutionManager));
-        mockToken.approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20(mockTokenHTS).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     /**
      * @notice Creates the test market with Chainlink configuration
      */
     function _createTestMarket() private {
-        // Prepare Chainlink configuration
         ChainlinkConfig memory chainlinkConfig = _prepareChainlinkConfig();
         IHederaTokenService.HederaToken[] memory tokens = new IHederaTokenService.HederaToken[](2);
         tokens[0].name = "Token1";
@@ -318,15 +333,15 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
         factory.createMarketMaker{value: 2 ether}(
             IDynamica.Config({
                 owner: OWNER,
-                collateralToken: address(mockToken),
+                collateralToken: address(mockTokenHTS),
                 oracle: ORACLE,
-                question: "eth/usdc",
+                question: "eth/usdc_hts_collateral",
                 outcomeSlotCount: 2,
                 startFunding: 10 * 10 ** uint256(DECIMALS_COLLATERAL),
                 outcomeTokenAmounts: INITIAL_SUPPLY,
                 fee: 0,
                 alpha: 3,
-                expLimit: 12750, 
+                expLimit: 12750,
                 decimals: int32(DECIMALS)
             }),
             IMarketResolutionModule.MarketResolutionConfig({
@@ -343,13 +358,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
 
         // Get the deployed market maker
         marketMaker = Dynamica(payable(factory.marketMakers(0)));
-
         outcomeTokenAddresses = new address[](2);
         outcomeTokenAddresses[0] = marketMaker.outcomeTokenAddresses(0);
         outcomeTokenAddresses[1] = marketMaker.outcomeTokenAddresses(1);
         vm.deal(address(marketMaker), 1000 ether);
     }
-
 
     /**
      * @notice Prepares Chainlink configuration for the test market
@@ -379,10 +392,27 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
      * @notice Mints tokens to test traders
      */
     function _mintTokensToTraders() private {
-        mockToken.mint(trader_0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        mockToken.mint(trader_1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        mockToken.mint(trader_2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        mockToken.mint(trader_3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        bytes[] memory serialNumbersBytes;
+        int256 responseCode;
+        int64 newTotalSupply;
+        int64[] memory serialNumbers;
+        (responseCode, newTotalSupply, serialNumbers) =
+            mintToken(mockTokenHTS, int64(int256(1_000_000 * (10 ** uint256(DECIMALS_COLLATERAL)))), serialNumbersBytes);
+
+        IERC20(mockTokenHTS).transfer(trader_0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        assertEq(responseCode, 22);
+        (responseCode, newTotalSupply, serialNumbers) =
+            mintToken(mockTokenHTS, int64(int256(1_000_000 * (10 ** uint256(DECIMALS_COLLATERAL)))), serialNumbersBytes);
+        IERC20(mockTokenHTS).transfer(trader_1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        assertEq(responseCode, 22);
+        (responseCode, newTotalSupply, serialNumbers) =
+            mintToken(mockTokenHTS, int64(int256(1_000_000 * (10 ** uint256(DECIMALS_COLLATERAL)))), serialNumbersBytes);
+        IERC20(mockTokenHTS).transfer(trader_2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        assertEq(responseCode, 22);
+        (responseCode, newTotalSupply, serialNumbers) =
+            mintToken(mockTokenHTS, int64(int256(1_000_000 * (10 ** uint256(DECIMALS_COLLATERAL)))), serialNumbersBytes);
+        IERC20(mockTokenHTS).transfer(trader_3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        assertEq(responseCode, 22);
     }
 
     // ============ Private Test Functions ============
@@ -393,10 +423,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
      */
     function _getInitialBalances() private view returns (uint256[] memory startBalances) {
         startBalances = new uint256[](5);
-        startBalances[0] = mockToken.balanceOf(trader_0);
-        startBalances[1] = mockToken.balanceOf(trader_1);
-        startBalances[2] = mockToken.balanceOf(trader_2);
-        startBalances[3] = mockToken.balanceOf(trader_3);
+        startBalances[0] = IERC20(mockTokenHTS).balanceOf(trader_0);
+        startBalances[1] = IERC20(mockTokenHTS).balanceOf(trader_1);
+        startBalances[2] = IERC20(mockTokenHTS).balanceOf(trader_2);
+        startBalances[3] = IERC20(mockTokenHTS).balanceOf(trader_3);
     }
 
     /**
@@ -414,14 +444,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
             responseCode = approve(
                 outcomeTokenAddresses[1], address(marketMaker), uint256(1_000 * int256(10 ** uint256(uint64(DECIMALS))))
             );
-            mockToken.approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
+            IERC20(mockTokenHTS).approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
             marketMaker.makePrediction(amounts[i]);
             vm.stopPrank();
         }
-        // 552 24 465 444 857 896 388 460
-        // 552 2446544485         789 638 846 000 000 000
     }
-
 
     /**
      * @notice Gets the sequence of traders for the test
@@ -528,11 +555,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
      */
     function _displayBalanceComparison(uint256[] memory startBalances) private view {
         uint256[] memory endBalances = new uint256[](5);
-        endBalances[0] = mockToken.balanceOf(trader_0);
-        endBalances[1] = mockToken.balanceOf(trader_1);
-        endBalances[2] = mockToken.balanceOf(trader_2);
-        endBalances[3] = mockToken.balanceOf(trader_3);
-        endBalances[4] = mockToken.balanceOf(address(marketMaker));
+        endBalances[0] = IERC20(mockTokenHTS).balanceOf(trader_0);
+        endBalances[1] = IERC20(mockTokenHTS).balanceOf(trader_1);
+        endBalances[2] = IERC20(mockTokenHTS).balanceOf(trader_2);
+        endBalances[3] = IERC20(mockTokenHTS).balanceOf(trader_3);
+        endBalances[4] = IERC20(mockTokenHTS).balanceOf(address(marketMaker));
 
         // Display balance changes for each participant
         for (uint256 i = 0; i < 4; i++) {

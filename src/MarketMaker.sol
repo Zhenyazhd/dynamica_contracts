@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-/*
-██████╗ ██╗   ██╗███╗   ██╗ █████╗ ███╗   ███╗██╗ ██████╗ █████╗ 
-██╔══██╗╚██╗ ██╔╝████╗  ██║██╔══██╗████╗ ████║██║██╔════╝██╔══██╗
-██║  ██║ ╚████╔╝ ██╔██╗ ██║███████║██╔████╔██║██║██║     ███████║
-██║  ██║  ╚██╔╝  ██║╚██╗██║██╔══██║██║╚██╔╝██║██║██║     ██╔══██║
-██████╔╝   ██║   ██║ ╚████║██║  ██║██║ ╚═╝ ██║██║╚██████╗██║  ██║
-╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
-*/
-
-import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 import {IDynamica} from "./interfaces/IDynamica.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -26,80 +17,46 @@ import {KeyHelper} from "@hashgraph/hedera-token-service/system-contracts/hedera
  * @title MarketMaker
  * @dev A simple prediction market maker contract that allows users to buy and sell outcome tokens
  * @notice This contract implements a basic market making mechanism for binary outcomes
- *
- * The contract manages a prediction market where users can:
- * - Make predictions by buying/selling outcome tokens
- * - Redeem payouts when the market is resolved
- * - Pay fees on trades
- *
- * The market uses a simple constant product market maker model with fees.
  */
-contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, IDynamica, KeyHelper {
-    // ============ Constants ============
-
-    /// @notice Maximum fee that can be set (100% in basis points)
+contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, IDynamica {
     uint64 public constant FEE_RANGE = 10_000;
 
-    // ============ State Variables ============
-
-    /// @notice Array of payout numerators for each outcome
     uint256[] public payoutNumerators;
-
-    /// @notice Payout denominator for calculating final payouts
     uint256 public payoutDenominator;
-
-    /// @notice The collateral token used for trading
     IERC20 public collateralToken;
-
-    /// @notice The question that this prediction market resolves
     string public question;
-
-    /// @notice The fee rate in basis points (e.g., 300 = 3%)
     uint64 public fee;
-
-    /// @notice Total funding in the market
-    uint256 public funding;
-
-    /// @notice Total fees received from trades
     uint256 public feeReceived;
-
-    /// @notice Array of addresses for created outcome tokens
     address[] public outcomeTokenAddresses;
-
-    /// @notice Array tracking total user outcome tokens for each outcome
-    uint256[] public usersOutcomes;
-
-    /// @notice Address of the oracle manager that can resolve the market
+    int256[] public outcomeTokenSupplies;
+    int32 public decimals;
     address public oracleManager;
-
-    /// @notice Number of possible outcomes in the market
     uint256 public outcomeSlotCount;
-
-    // ============ Events ============
-
-    // Events are defined in the IDynamica interface
-
-    // ============ Modifiers ============
+    uint32 public expirationTime;
 
     /// @notice Ensures the market is not yet resolved
     modifier marketNotResolved() {
-        require(payoutDenominator == 0, "Market already resolved");
+        if (payoutDenominator != 0) {
+            revert MarketAlreadyResolved();
+        }
         _;
     }
 
     /// @notice Ensures the market is resolved
     modifier marketResolved() {
-        require(payoutDenominator != 0, "Market not resolved");
+        if (payoutDenominator == 0) {
+            revert MarketNotResolved();
+        }
         _;
     }
 
     /// @notice Ensures only the oracle manager can call the function
     modifier onlyOracleManager() {
-        require(oracleManager == msg.sender, "Only oracle manager can call this");
+        if (oracleManager != msg.sender) {
+            revert OnlyOracleManager(msg.sender);
+        }
         _;
     }
-
-    // ============ External Functions ============
 
     /**
      * @notice Initializes the market with funding and outcome configuration
@@ -108,44 +65,46 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param _outcomeSlotCount The number of possible outcomes
      * @param _startFunding The amount of funding to add to the market
      * @param _outcomeTokenAmounts The initial token amounts for each outcome
+     * @param _decimals The decimals for the outcome tokens
+     * @param tokens Array of HederaToken structs for each outcome
      */
     function initializeMarket(
         address oracle,
         string calldata _question,
         uint256 _outcomeSlotCount,
         uint256 _startFunding,
-        uint256 _outcomeTokenAmounts,
+        int64 _outcomeTokenAmounts,
+        int32 _decimals,
         IHederaTokenService.HederaToken[] memory tokens
     ) internal {
-        require(oracle != address(0), "Invalid oracle address");
-        require(_outcomeSlotCount > 0, "Must have at least one outcome");
-        require(_startFunding > 0, "Start funding must be positive");
-        require(_outcomeTokenAmounts > 0, "Outcome token amounts must be positive");
-
         oracleManager = oracle;
         question = _question;
         outcomeSlotCount = _outcomeSlotCount;
-
-        // Initialize arrays
         payoutNumerators = new uint256[](_outcomeSlotCount);
-        usersOutcomes = new uint256[](_outcomeSlotCount);
         outcomeTokenAddresses = new address[](_outcomeSlotCount);
-
-        // Transfer initial funding from sender
-        require(collateralToken.transferFrom(msg.sender, address(this), _startFunding), "Transfer failed");
-
-        funding += _startFunding;
-        uint256 valuePerToken = msg.value / 2;
+        outcomeTokenSupplies = new int256[](_outcomeSlotCount);
+        if (!collateralToken.transferFrom(msg.sender, address(this), _startFunding)) {
+            revert TransferFailed();
+        }
+        decimals = _decimals;
+        uint256 valuePerToken = msg.value / _outcomeSlotCount;
         address tokenAddress;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], int64(int256(_outcomeTokenAmounts)), 8);
+            (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], _outcomeTokenAmounts);
             outcomeTokenAddresses[i] = tokenAddress;
+            outcomeTokenSupplies[i] = int256(_outcomeTokenAmounts);
         }
-
         emit startFunding(_startFunding, _outcomeTokenAmounts);
     }
 
-    function createToken(IHederaTokenService.HederaToken memory token, int64 initialSupply, int32 decimals)
+    /**
+     * @notice Creates a new outcome token
+     * @param token HederaToken struct for the outcome
+     * @param initialSupply Initial supply for the outcome token
+     * @return responseCode Hedera response code
+     * @return tokenAddress Address of the created token
+     */
+    function createToken(IHederaTokenService.HederaToken memory token, int64 initialSupply)
         public
         payable
         onlyInitializing
@@ -165,17 +124,9 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             })
         });
         token.tokenKeys[0] = supplyKey;
-        (responseCode, tokenAddress) = HederaTokenService.createFungibleToken(token, initialSupply, decimals);
+        (responseCode, tokenAddress) = createFungibleToken(token, initialSupply, decimals);
         if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert("Failed to create token");
-        }
-    }
-
-    function tokenAssociate(address tokenId, address account) internal {
-        int256 response = HederaTokenService.associateToken(account, tokenId);
-
-        if (response != HederaResponseCodes.SUCCESS) {
-            revert("Associate Failed");
+            revert FailedToCreateToken();
         }
     }
 
@@ -184,133 +135,122 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
      *        Positive values = buying tokens, Negative values = selling tokens
      */
-    function makePrediction(int256[] calldata deltaOutcomeAmounts_) external marketNotResolved {
-        require(deltaOutcomeAmounts_.length == outcomeSlotCount, "Invalid outcome amount length");
-
-        // Validate user has enough shares to sell
+    function makePrediction(int64[] calldata deltaOutcomeAmounts_) external marketNotResolved {
+        if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
+            revert InvalidDeltaOutcomeAmountsLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
+        }
         _validateSellAmounts(deltaOutcomeAmounts_);
-
-        // Calculate net cost of the trade
         int256 netCost = calcNetCost(deltaOutcomeAmounts_);
-
-        // Handle fee calculation and token transfers
-        uint256 feeAmount = _handleTradePayment(netCost);
-
-        // Update pool and user state
+        bool isBuy = netCost > 0;
+        uint256 cost = isBuy ? uint256(netCost) : uint256(-netCost);
+        uint256 feeAmount = _handleTradePayment(cost, isBuy);
         _updateUserShares(deltaOutcomeAmounts_);
-
         emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
     }
 
     /**
      * @notice Closes the market by resolving the condition with payout ratios
      * @param payouts Array of payout numerators for each outcome
-     * @dev Only callable by the oracle manager
      */
     function closeMarket(uint256[] calldata payouts) external onlyOracleManager marketNotResolved {
         uint256 _outcomeSlotCount = payouts.length;
-        require(_outcomeSlotCount == outcomeSlotCount, "Must have exactly outcomeSlotCount outcomes");
-
-        require(payoutNumerators.length == _outcomeSlotCount, "Condition not prepared or found");
-
-        // Calculate and validate payout denominator
-        uint256 denominator = _calculatePayoutDenominator(payouts);
-        require(denominator > 0, "Payout is all zeroes");
-
-        // Set payout numerators
-        for (uint256 i = 0; i < _outcomeSlotCount; i++) {
-            require(payoutNumerators[i] == 0, "Payout numerator already set");
-            payoutNumerators[i] = payouts[i];
-            usersOutcomes[i] = IERC20(outcomeTokenAddresses[i]).totalSupply()
-                - IERC20(outcomeTokenAddresses[i]).balanceOf(address(this));
+        if (_outcomeSlotCount != outcomeSlotCount) {
+            revert MustHaveExactlyOutcomeSlotCount(_outcomeSlotCount, outcomeSlotCount);
         }
-        payoutDenominator = denominator;
-        _sendMarketsSharesToOwner();
+        if (payoutNumerators.length != _outcomeSlotCount) {
+            revert ConditionNotPreparedOrFound();
+        }
+        payoutDenominator = _calculatePayoutDenominator(payouts);
+        if (payoutDenominator == 0) {
+            revert PayoutIsAllZeroes();
+        }
+        uint256 totalPayout = 0;
+        uint256 usersOutcomes = 0;
+        for (uint256 i = 0; i < _outcomeSlotCount; i++) {
+            if (payoutNumerators[i] != 0) {
+                revert PayoutNumeratorAlreadySet(i);
+            }
+            payoutNumerators[i] = payouts[i];
+            usersOutcomes = IERC20(outcomeTokenAddresses[i]).totalSupply()
+                - getHtsBalanceERC20(outcomeTokenAddresses[i], address(this));
+            totalPayout += (usersOutcomes * payoutNumerators[i]) / payoutDenominator;
+        }
+        _sendMarketsSharesToOwner(totalPayout);
     }
 
     /**
      * @notice Redeems payout for resolved condition
-     * @dev Calculates payout based on user's shares and resolved outcome ratios
      */
     function redeemPayout() external marketResolved {
         uint256 denominator = payoutDenominator;
-        int256[] memory shares = new int256[](outcomeSlotCount);
-
+        uint256[] memory shares = new uint256[](outcomeSlotCount);
+        uint256 totalPayout = 0;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            shares[i] = int256(IERC20(outcomeTokenAddresses[i]).balanceOf(msg.sender));
-        }
-
-        uint256 totalPayout = _calculateUserPayout(shares, denominator);
-        require(totalPayout > 0, "Nothing to redeem");
-
-        // Clear user shares after payout
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            shares[i] = getHtsBalanceERC20(outcomeTokenAddresses[i], msg.sender);
+            if (shares[i] == 0 || payoutNumerators[i] == 0) continue;
             if (shares[i] > 0 && payoutNumerators[i] > 0) {
-                _burnToken(outcomeTokenAddresses[i], int64(shares[i]), msg.sender);
-                shares[i] = 0;
+                _burnToken(outcomeTokenAddresses[i], int64(uint64(shares[i])), msg.sender);
             }
+            totalPayout += (shares[i] * payoutNumerators[i]) / denominator;
+            shares[i] = 0;
         }
-
-        require(collateralToken.transfer(msg.sender, totalPayout), "Transfer failed");
-
-        emit PayoutRedemption(
-            msg.sender,
-            collateralToken,
-            bytes32(0), // parentCollectionId
-            bytes32(0), // conditionId (not used anymore)
-            new uint256[](0), // indexSets
-            totalPayout
-        );
+        if (totalPayout == 0) {
+            revert NothingToRedeem();
+        }
+        if (!collateralToken.transfer(msg.sender, totalPayout)) {
+            revert TransferFailed();
+        }
+        emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
     }
-
-    // ============ Public Functions ============
 
     /**
      * @notice Calculates the net cost for a trade
      * @param outcomeTokenAmounts Array of token amount changes
      * @return netCost The net cost of the trade (positive = user pays, negative = user receives)
      */
-    function calcNetCost(int256[] memory outcomeTokenAmounts) public view virtual returns (int256) {
+    function calcNetCost(int64[] memory outcomeTokenAmounts) public view virtual returns (int256) {
         // This function should be implemented by derived contracts
-        // to provide specific market making logic
     }
 
     /**
      * @notice Changes the fee rate
      * @param _fee The new fee rate in basis points
-     * @dev Only callable by owner
      */
     function changeFee(uint64 _fee) external onlyOwner {
-        require(_fee < FEE_RANGE, "Fee must be less than FEE_RANGE");
+        if (_fee >= FEE_RANGE) {
+            revert FeeMustBeLessThanRange(_fee, FEE_RANGE);
+        }
         fee = _fee;
         emit FeeChanged(fee);
     }
 
     /**
      * @notice Withdraws accumulated fees to the owner
-     * @dev Only callable by owner
      */
     function withdrawFee() external onlyOwner {
-        require(feeReceived > 0, "No fees to withdraw");
+        if (feeReceived == 0) {
+            revert NoFeesToWithdraw();
+        }
         uint256 amount = feeReceived;
-        feeReceived = 0; // Reset accumulated fees
-        require(collateralToken.transfer(owner(), amount), "Fee transfer failed");
+        feeReceived = 0;
+        if (!collateralToken.transfer(owner(), amount)) {
+            revert FeeTransferFailed();
+        }
         emit FeeWithdrawal(amount);
     }
-
-    // ============ Private Functions ============
 
     /**
      * @notice Validates that user has enough shares to sell
      * @param deltaOutcomeAmounts_ Array of token amount changes
      */
-    function _validateSellAmounts(int256[] calldata deltaOutcomeAmounts_) private view {
+    function _validateSellAmounts(int64[] calldata deltaOutcomeAmounts_) private view {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] < 0) {
-                require(
-                    IERC20(outcomeTokenAddresses[i]).balanceOf(msg.sender) >= uint256(-deltaOutcomeAmounts_[i]),
-                    "Insufficient shares to sell"
-                );
+                uint256 balance = getHtsBalanceERC20(outcomeTokenAddresses[i], msg.sender);
+                uint256 amount = uint256(uint64(-deltaOutcomeAmounts_[i]));
+                if (balance < amount) {
+                    revert InsufficientSharesToSell(msg.sender, amount, balance);
+                }
             }
         }
     }
@@ -320,23 +260,21 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param netCost The net cost of the trade
      * @return feeAmount The fee amount charged
      */
-    function _handleTradePayment(int256 netCost) private returns (uint256 feeAmount) {
-        uint256 absoluteNetCost = netCost > 0 ? uint256(netCost) : uint256(-netCost);
-
-        if (netCost > 0) {
-            // User is buying - calculate fee and transfer tokens
-            uint256 shouldPay = (uint256(netCost) * FEE_RANGE) / (FEE_RANGE - fee);
-            feeAmount = shouldPay - uint256(netCost);
+    function _handleTradePayment(uint256 netCost, bool isBuy) private returns (uint256 feeAmount) {
+        if (isBuy) {
+            uint256 shouldPay = (netCost * FEE_RANGE) / (FEE_RANGE - fee);
+            feeAmount = shouldPay - netCost;
             feeReceived += feeAmount;
-
-            require(collateralToken.transferFrom(msg.sender, address(this), uint256(netCost)), "Transfer failed");
+            if (!collateralToken.transferFrom(msg.sender, address(this), netCost)) {
+                revert TransferFailed();
+            }
         } else {
-            // User is selling - calculate fee and pay out tokens
-            feeAmount = (absoluteNetCost * fee) / FEE_RANGE;
+            feeAmount = (netCost * fee) / FEE_RANGE;
             feeReceived += feeAmount;
-            uint256 payoutAmount = uint256(-netCost) - feeAmount;
-
-            require(collateralToken.transfer(msg.sender, payoutAmount), "Transfer failed");
+            uint256 payoutAmount = netCost - feeAmount;
+            if (!collateralToken.transfer(msg.sender, payoutAmount)) {
+                revert TransferFailed();
+            }
         }
     }
 
@@ -344,41 +282,53 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @notice Updates user shares for each outcome
      * @param deltaOutcomeAmounts_ Array of token amount changes
      */
-    function _updateUserShares(int256[] calldata deltaOutcomeAmounts_) private {
+    function _updateUserShares(int64[] calldata deltaOutcomeAmounts_) private {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] > 0) {
-                int64 mintAmount = int64(deltaOutcomeAmounts_[i]);
+                int64 mintAmount = deltaOutcomeAmounts_[i];
+                outcomeTokenSupplies[i] += int256(mintAmount);
                 _mintToken(outcomeTokenAddresses[i], mintAmount, msg.sender);
             } else if (deltaOutcomeAmounts_[i] < 0) {
-                int64 burnAmount = int64(-deltaOutcomeAmounts_[i]);
+                int64 burnAmount = -deltaOutcomeAmounts_[i];
+                outcomeTokenSupplies[i] -= int256(burnAmount);
                 _burnToken(outcomeTokenAddresses[i], burnAmount, msg.sender);
             }
         }
     }
 
+    /**
+     * @notice Burns tokens from a user
+     * @param tokenAddress Address of the token
+     * @param burnAmount Amount to burn
+     * @param from Address to burn from
+     */
     function _burnToken(address tokenAddress, int64 burnAmount, address from) internal {
         int64[] memory serialNumbersBytes = new int64[](0);
-
         int256 response = transferToken(tokenAddress, from, address(this), burnAmount);
         if (response != HederaResponseCodes.SUCCESS) {
-            revert("Failed to transfer_burn token");
+            revert FailedToTransferToken();
         }
         (int256 responseCode,) = burnToken(tokenAddress, burnAmount, serialNumbersBytes);
         if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert("Failed to burn token");
+            revert FailedToBurnToken();
         }
     }
 
+    /**
+     * @notice Mints tokens to a user
+     * @param tokenAddress Address of the token
+     * @param mintAmount Amount to mint
+     * @param to Address to mint to
+     */
     function _mintToken(address tokenAddress, int64 mintAmount, address to) internal {
         bytes[] memory serialNumbersBytes = new bytes[](0);
-        (int256 responseCode, int64 newTotalSupply, int64[] memory serialNumbers) =
-            mintToken(tokenAddress, mintAmount, serialNumbersBytes);
+        (int256 responseCode,,) = mintToken(tokenAddress, mintAmount, serialNumbersBytes);
         if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert("Failed to mint token");
+            revert FailedToMintToken();
         }
         int256 response = transferToken(tokenAddress, address(this), to, mintAmount);
         if (response != HederaResponseCodes.SUCCESS) {
-            revert("Failed to transfer_mint token");
+            revert FailedToTransferToken();
         }
     }
 
@@ -394,40 +344,24 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     }
 
     /**
-     * @notice Calculates user's total payout based on shares and resolved outcome
-     * @param shares User's shares for each outcome
-     * @param denominator Payout denominator
-     * @return totalPayout The total payout amount
-     */
-    function _calculateUserPayout(int256[] memory shares, uint256 denominator)
-        private
-        view
-        returns (uint256 totalPayout)
-    {
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            if (shares[i] <= 0 || payoutNumerators[i] == 0) continue;
-            totalPayout += (uint256(shares[i]) * payoutNumerators[i]) / denominator;
-        }
-    }
-
-    /**
      * @notice Sends remaining market shares to the owner after resolution
+     * @param totalPayout The total payout amount
      */
-    function _sendMarketsSharesToOwner() private {
-        uint256 totalPayout = _calculateTotalMarketPayout();
+    function _sendMarketsSharesToOwner(uint256 totalPayout) private {
         uint256 returnToOwner = collateralToken.balanceOf(address(this)) - totalPayout;
-
-        require(collateralToken.transfer(msg.sender, returnToOwner), "Transfer failed");
+        if (!collateralToken.transfer(owner(), returnToOwner)) {
+            revert TransferFailed();
+        }
         emit SendMarketsSharesToOwner(returnToOwner);
     }
 
     /**
-     * @notice Calculates total payout for all market participants
-     * @return totalPayout The total payout amount
+     * @notice Returns the ERC20 balance for a given token and address
+     * @param token Address of the token
+     * @param to Address to check balance for
+     * @return Balance of the token for the address
      */
-    function _calculateTotalMarketPayout() private view returns (uint256 totalPayout) {
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            totalPayout += (usersOutcomes[i] * payoutNumerators[i]) / payoutDenominator;
-        }
+    function getHtsBalanceERC20(address token, address to) public view returns (uint256) {
+        return IERC20(token).balanceOf(to);
     }
 }
