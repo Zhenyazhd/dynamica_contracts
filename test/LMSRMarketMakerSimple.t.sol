@@ -4,9 +4,9 @@ pragma solidity ^0.8.25;
 //import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 import {IERC20} from "../src/interfaces/IERC20.sol";
 import {MockToken} from "./MockToken.sol";
-import {Dynamica} from "../src/Dynamica.sol";
+import {Dynamica} from "../src/v1/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
-import {DynamicaFactory} from "../src/MarketMakerFactory.sol";
+import {DynamicaFactory} from "../src/v1/MarketMakerFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule, ChainlinkConfig} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
 import {FTSOResolutionModule} from "../src/Oracles/Flare/FTSOResolutionModule.sol";
@@ -16,11 +16,11 @@ import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {console} from "forge-std/src/console.sol";
 import {Test} from "forge-std/src/Test.sol";
 import {HederaTokenService} from
-    "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/HederaTokenService.sol";
+    "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/HederaTokenService.sol";
 import {IHederaTokenService} from
-    "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/IHederaTokenService.sol";
-import {ExpiryHelper} from "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/ExpiryHelper.sol";
-import {KeyHelper} from "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/KeyHelper.sol";
+    "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
+import {ExpiryHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/ExpiryHelper.sol";
+import {KeyHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/KeyHelper.sol";
 import {htsSetup} from "hashgraph-hedera-forking/contracts/htsSetup.sol";
 
 /**
@@ -331,7 +331,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP, ExpiryHelper, KeyHelper, Hede
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,

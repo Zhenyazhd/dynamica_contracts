@@ -12,9 +12,9 @@ pragma solidity ^0.8.25;
 
 import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {MarketMaker} from "./MarketMaker.sol";
-import {IDynamica} from "./interfaces/IDynamica.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
-import {IHederaTokenService} from "hedera-smart-contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
+import {IDynamica} from "../interfaces/IDynamica.sol";
+import {IERC20} from "../interfaces/IERC20.sol";
+import {IHederaTokenService} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
 import "forge-std/src/console.sol";
 
 /**
@@ -53,8 +53,8 @@ contract Dynamica is MarketMaker {
         initializer
     {
         __Ownable_init(config.owner);
-        collateralToken = IERC20(config.collateralToken);
-        uint8 collateralTokenDecimals = collateralToken.decimals();
+        collateralToken = config.collateralToken;
+        uint8 collateralTokenDecimals = IERC20(collateralToken).decimals();
         if (collateralTokenDecimals > 18) {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }

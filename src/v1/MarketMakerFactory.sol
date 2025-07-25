@@ -10,17 +10,17 @@ pragma solidity ^0.8.25;
 ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
 */
 
-import {IERC20} from "./interfaces/IERC20.sol";
-import {Clones} from "@openzeppelin-contracts/proxy/Clones.sol";
+import {IERC20} from "../interfaces/IERC20.sol";
+import {Clones} from "@openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {Dynamica} from "./Dynamica.sol";
-import {IDynamica} from "./interfaces/IDynamica.sol";
+import {IDynamica} from "../interfaces/IDynamica.sol";
 import {MarketMaker} from "./MarketMaker.sol";
-import {MarketResolutionManager} from "./Oracles/MarketResolutionManager.sol";
-import {ChainlinkResolutionModule} from "./Oracles/Hedera/ChainlinkResolutionModule.sol";
-import {FTSOResolutionModule} from "./Oracles/Flare/FTSOResolutionModule.sol";
-import {IMarketResolutionModule} from "./interfaces/IMarketResolutionModule.sol";
-import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
-import {IHederaTokenService} from "hedera-smart-contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
+import {MarketResolutionManager} from "../Oracles/MarketResolutionManager.sol";
+import {ChainlinkResolutionModule} from "../Oracles/Hedera/ChainlinkResolutionModule.sol";
+import {FTSOResolutionModule} from "../Oracles/Flare/FTSOResolutionModule.sol";
+import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
+import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
+import {IHederaTokenService} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
 import {console} from "forge-std/src/console.sol";
 
 /**
@@ -33,7 +33,7 @@ contract DynamicaFactory is Ownable {
     /// @param creator Address of the market creator
     /// @param marketMaker Address of the created market maker contract
     /// @param collateralToken Address of the collateral token used
-    event MarketMakerCreated(address indexed creator, address indexed marketMaker, address indexed collateralToken);
+    event FactoryMarketMakerCreated(address indexed creator, address indexed marketMaker, address indexed collateralToken);
 
     /// @notice Implementation contract for Dynamica market makers
     address public immutable implementationMarketMaker;
@@ -147,7 +147,7 @@ contract DynamicaFactory is Ownable {
         marketMakers.push(cloneAddress);
         marketMakerCreators[cloneAddress] = msg.sender;
         creatorMarketMakers[msg.sender].push(cloneAddress);
-        emit MarketMakerCreated(msg.sender, cloneAddress, config.collateralToken);
+        emit FactoryMarketMakerCreated(msg.sender, cloneAddress, config.collateralToken);
     }
 
     /**

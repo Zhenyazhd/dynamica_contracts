@@ -2,6 +2,12 @@
 pragma solidity ^0.8.25;
 
 interface IMarketResolutionModule {
+    /// @notice Emitted when a new market is registered
+    event MarketRegistered(bytes32 indexed questionId, address indexed marketMaker, address indexed resolutionModule);
+
+    /// @notice Emitted when a market is resolved with payout ratios
+    event MarketResolved(bytes32 indexed questionId, uint256[] payouts);
+
     enum ResolutionModule {
         CHAINLINK,
         FTSO,
@@ -19,8 +25,6 @@ interface IMarketResolutionModule {
     }
 
     function resolveMarket(
-        bytes32 questionId,
-        address marketMakerAddress,
         uint256 outcomeSlotCount,
         bytes calldata resolutionData
     ) external returns (uint256[] memory payouts);

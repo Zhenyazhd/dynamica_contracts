@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
 import {console} from "forge-std/src/console.sol";
@@ -17,7 +17,7 @@ import {console} from "forge-std/src/console.sol";
  * - Market resolution through configured modules
  * - Centralized tracking of market states
  */
-contract MarketResolutionManager is Ownable {
+contract MarketResolutionManager is Ownable  {
     // ============ State Variables ============
 
     /// @notice Address of the factory contract that can register markets
@@ -39,6 +39,11 @@ contract MarketResolutionManager is Ownable {
     /// @notice Ensures only the factory contract can call the function
     modifier onlyFactory() {
         require(msg.sender == factory, "Only factory can call this function");
+        _;
+    }
+
+    modifier onlyWhenExpired(uint32 expirationTime) {
+        require(block.timestamp > expirationTime, "Market not expired");
         _;
     }
 
@@ -71,6 +76,7 @@ contract MarketResolutionManager is Ownable {
         address marketMaker,
         uint256 outcomeSlotCount,
         address resolutionModule,
+        uint32 expirationTime,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
         bytes calldata resolutionData
     ) external onlyFactory {
@@ -81,7 +87,8 @@ contract MarketResolutionManager is Ownable {
             outcomeSlotCount,
             resolutionModule,
             resolutionData,
-            false, // isResolved
+            false, // isResolve
+            expirationTime,
             resolutionModuleType
         );
 
@@ -94,13 +101,17 @@ contract MarketResolutionManager is Ownable {
      * @dev Only callable by the owner. Calls the resolution module and passes
      * the result to the MarketMaker contract
      */
-    function resolveMarket(bytes32 questionId) external onlyOwner {
+    function resolveMarket(bytes32 questionId)
+        external
+        onlyOwner
+        onlyWhenExpired(marketConfigs[questionId].expirationTime)
+    {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
 
-        _validateMarketResolution(config, questionId);
+        _validateMarketResolution(config);
 
         // Call the resolution module to get payout ratios
-        uint256[] memory payouts = _getMarketPayouts(config, questionId);
+        uint256[] memory payouts = _getMarketPayouts(config);
 
         // Close the market with the calculated payouts
         IDynamica(config.marketMaker).closeMarket(payouts);
@@ -135,11 +146,9 @@ contract MarketResolutionManager is Ownable {
     /**
      * @notice Validates that a market can be resolved
      * @param config The market resolution configuration
-     * @param questionId The question ID for error reporting
      */
     function _validateMarketResolution(
-        IMarketResolutionModule.MarketResolutionConfig storage config,
-        bytes32 questionId
+        IMarketResolutionModule.MarketResolutionConfig storage config
     ) private view {
         require(config.marketMaker != address(0), "Market not registered");
         require(!config.isResolved, "Market already resolved");
@@ -148,16 +157,13 @@ contract MarketResolutionManager is Ownable {
     /**
      * @notice Gets market payouts from the resolution module
      * @param config The market resolution configuration
-     * @param questionId The question ID for resolution
      * @return payouts Array of payout numerators for each outcome
      */
-    function _getMarketPayouts(IMarketResolutionModule.MarketResolutionConfig storage config, bytes32 questionId)
+    function _getMarketPayouts(IMarketResolutionModule.MarketResolutionConfig storage config)
         private
         returns (uint256[] memory payouts)
     {
         payouts = IMarketResolutionModule(config.resolutionModule).resolveMarket(
-            questionId,
-            config.marketMaker, // Pass MarketMaker for context if needed
             config.outcomeSlotCount,
             config.resolutionData
         );

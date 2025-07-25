@@ -11,37 +11,49 @@ pragma solidity ^0.8.25;
 ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
 */
 
-import {IERC20} from "./interfaces/IERC20.sol";
-import {IDynamica} from "./interfaces/IDynamica.sol";
+import {IERC20} from "../interfaces/IERC20.sol";
+import {IDynamica} from "../interfaces/IDynamica.sol";
+import {IHederaTokenService} from "hedera-smart-contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
+import {HederaTokenService} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/HederaTokenService.sol";
+import {HederaResponseCodes} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/HederaResponseCodes.sol";
+import {KeyHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/KeyHelper.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
 import "forge-std/src/console.sol";
 import "forge-std/src/Test.sol";
-import {IHederaTokenService} from "hedera-smart-contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
-import {HederaTokenService} from
-    "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/HederaTokenService.sol";
-import {HederaResponseCodes} from "@hashgraph/hedera-token-service/system-contracts/HederaResponseCodes.sol";
-import {KeyHelper} from "@hashgraph/hedera-token-service/system-contracts/hedera-token-service/KeyHelper.sol";
-
 /**
  * @title MarketMaker
- * @dev A simple prediction market maker contract that allows users to buy and sell outcome tokens
- * @notice This contract implements a basic market making mechanism for binary outcomes
+ * @dev A simple prediction market maker contract that allows users to buy and sell outcome tokens.
+ *      Implements basic market making logic for binary and multi-outcome prediction markets.
+ *      Integrates with Hedera Token Service for outcome token management.
  */
 contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, IDynamica {
+    /// @notice Maximum fee that can be set (100% in basis points)
     uint64 public constant FEE_RANGE = 10_000;
 
+    /// @notice Array of payout numerators for each outcome
     uint256[] public payoutNumerators;
+    /// @notice Payout denominator for calculating final payouts
     uint256 public payoutDenominator;
-    IERC20 public collateralToken;
+    /// @notice Address of the ERC20 collateral token
+    address public collateralToken;
+    /// @notice The question that this prediction market resolves
     string public question;
+    /// @notice The fee rate in basis points (e.g., 300 = 3%)
     uint64 public fee;
+    /// @notice Total fees received from trades
     uint256 public feeReceived;
+    /// @notice Array of addresses for created outcome tokens
     address[] public outcomeTokenAddresses;
+    /// @notice Array of supplies for each outcome token
     int256[] public outcomeTokenSupplies;
+    /// @notice Decimals for outcome tokens
     int32 public decimals;
+    /// @notice Address of the oracle manager that can resolve the market
     address public oracleManager;
+    /// @notice Number of possible outcomes in the market
     uint256 public outcomeSlotCount;
+    /// @notice Expiration time of the market
     uint32 public expirationTime;
 
     /// @notice Ensures the market is not yet resolved
@@ -77,6 +89,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param _outcomeTokenAmounts The initial token amounts for each outcome
      * @param _decimals The decimals for the outcome tokens
      * @param tokens Array of HederaToken structs for each outcome
+     * @dev Emits MarketInitialized and TokenCreated events
      */
     function initializeMarket(
         address oracle,
@@ -93,7 +106,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         payoutNumerators = new uint256[](_outcomeSlotCount);
         outcomeTokenAddresses = new address[](_outcomeSlotCount);
         outcomeTokenSupplies = new int256[](_outcomeSlotCount);
-        if (!collateralToken.transferFrom(msg.sender, address(this), _startFunding)) {
+        if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), _startFunding)) {
             revert TransferFailed();
         }
         decimals = _decimals;
@@ -103,16 +116,18 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], _outcomeTokenAmounts);
             outcomeTokenAddresses[i] = tokenAddress;
             outcomeTokenSupplies[i] = int256(_outcomeTokenAmounts);
+            emit TokenCreated(tokenAddress, uint8(i));
         }
-        emit startFunding(_startFunding, _outcomeTokenAmounts);
+        emit MarketInitialized(msg.value, _question, _outcomeTokenAmounts);
     }
 
     /**
-     * @notice Creates a new outcome token
+     * @notice Creates a new outcome token using Hedera Token Service
      * @param token HederaToken struct for the outcome
      * @param initialSupply Initial supply for the outcome token
      * @return responseCode Hedera response code
      * @return tokenAddress Address of the created token
+     * @dev Emits TokenCreated event
      */
     function createToken(IHederaTokenService.HederaToken memory token, int64 initialSupply)
         public
@@ -144,6 +159,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @notice Makes a prediction by buying or selling outcome tokens
      * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
      *        Positive values = buying tokens, Negative values = selling tokens
+     * @dev Emits OutcomeTokenTrade event
      */
     function makePrediction(int64[] calldata deltaOutcomeAmounts_) external marketNotResolved {
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
@@ -161,6 +177,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /**
      * @notice Closes the market by resolving the condition with payout ratios
      * @param payouts Array of payout numerators for each outcome
+     * @dev Only callable by the oracle manager. Emits MarketResolved event.
      */
     function closeMarket(uint256[] calldata payouts) external onlyOracleManager marketNotResolved {
         uint256 _outcomeSlotCount = payouts.length;
@@ -186,10 +203,12 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             totalPayout += (usersOutcomes * payoutNumerators[i]) / payoutDenominator;
         }
         _sendMarketsSharesToOwner(totalPayout);
+        emit MarketResolved(msg.sender, payouts, payoutDenominator);
     }
 
     /**
      * @notice Redeems payout for resolved condition
+     * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
      */
     function redeemPayout() external marketResolved {
         uint256 denominator = payoutDenominator;
@@ -207,7 +226,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         if (totalPayout == 0) {
             revert NothingToRedeem();
         }
-        if (!collateralToken.transfer(msg.sender, totalPayout)) {
+        if (!IERC20(collateralToken).transfer(msg.sender, totalPayout)) {
             revert TransferFailed();
         }
         emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
@@ -225,17 +244,19 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /**
      * @notice Changes the fee rate
      * @param _fee The new fee rate in basis points
+     * @dev Only callable by owner. Emits FeeChanged event.
      */
     function changeFee(uint64 _fee) external onlyOwner {
         if (_fee >= FEE_RANGE) {
             revert FeeMustBeLessThanRange(_fee, FEE_RANGE);
         }
         fee = _fee;
-        emit FeeChanged(fee);
+        emit FeeChanged(block.timestamp, _fee);
     }
 
     /**
      * @notice Withdraws accumulated fees to the owner
+     * @dev Only callable by owner. Emits FeeWithdrawal event.
      */
     function withdrawFee() external onlyOwner {
         if (feeReceived == 0) {
@@ -243,15 +264,16 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         }
         uint256 amount = feeReceived;
         feeReceived = 0;
-        if (!collateralToken.transfer(owner(), amount)) {
+        if (!IERC20(collateralToken).transfer(owner(), amount)) {
             revert FeeTransferFailed();
         }
-        emit FeeWithdrawal(amount);
+        emit FeeWithdrawal(block.timestamp, amount);
     }
 
     /**
      * @notice Validates that user has enough shares to sell
      * @param deltaOutcomeAmounts_ Array of token amount changes
+     * @dev Reverts if user does not have enough shares
      */
     function _validateSellAmounts(int64[] calldata deltaOutcomeAmounts_) private view {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
@@ -268,6 +290,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /**
      * @notice Handles payment processing for trades including fee calculation
      * @param netCost The net cost of the trade
+     * @param isBuy True if the user is buying, false if selling
      * @return feeAmount The fee amount charged
      */
     function _handleTradePayment(uint256 netCost, bool isBuy) private returns (uint256 feeAmount) {
@@ -275,14 +298,14 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             uint256 shouldPay = (netCost * FEE_RANGE) / (FEE_RANGE - fee);
             feeAmount = shouldPay - netCost;
             feeReceived += feeAmount;
-            if (!collateralToken.transferFrom(msg.sender, address(this), netCost)) {
+            if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), netCost)) {
                 revert TransferFailed();
             }
         } else {
             feeAmount = (netCost * fee) / FEE_RANGE;
             feeReceived += feeAmount;
             uint256 payoutAmount = netCost - feeAmount;
-            if (!collateralToken.transfer(msg.sender, payoutAmount)) {
+            if (!IERC20(collateralToken).transfer(msg.sender, payoutAmount)) {
                 revert TransferFailed();
             }
         }
@@ -291,6 +314,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /**
      * @notice Updates user shares for each outcome
      * @param deltaOutcomeAmounts_ Array of token amount changes
+     * @dev Mints or burns outcome tokens as needed
      */
     function _updateUserShares(int64[] calldata deltaOutcomeAmounts_) private {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
@@ -311,6 +335,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param tokenAddress Address of the token
      * @param burnAmount Amount to burn
      * @param from Address to burn from
+     * @dev Emits TokenBurned event
      */
     function _burnToken(address tokenAddress, int64 burnAmount, address from) internal {
         int64[] memory serialNumbersBytes = new int64[](0);
@@ -322,6 +347,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         if (responseCode != HederaResponseCodes.SUCCESS) {
             revert FailedToBurnToken();
         }
+        emit TokenBurned(from, tokenAddress, burnAmount);
     }
 
     /**
@@ -329,6 +355,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param tokenAddress Address of the token
      * @param mintAmount Amount to mint
      * @param to Address to mint to
+     * @dev Emits TokenMinted event
      */
     function _mintToken(address tokenAddress, int64 mintAmount, address to) internal {
         bytes[] memory serialNumbersBytes = new bytes[](0);
@@ -340,6 +367,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         if (response != HederaResponseCodes.SUCCESS) {
             revert FailedToTransferToken();
         }
+        emit TokenMinted(to, tokenAddress, mintAmount);
     }
 
     /**
@@ -356,13 +384,14 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     /**
      * @notice Sends remaining market shares to the owner after resolution
      * @param totalPayout The total payout amount
+     * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner(uint256 totalPayout) private {
-        uint256 returnToOwner = collateralToken.balanceOf(address(this)) - totalPayout;
-        if (!collateralToken.transfer(owner(), returnToOwner)) {
+        uint256 returnToOwner = getHtsBalanceERC20(collateralToken, address(this)) - totalPayout;
+        if (!IERC20(collateralToken).transfer(owner(), returnToOwner)) {
             revert TransferFailed();
         }
-        emit SendMarketsSharesToOwner(returnToOwner);
+        emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
     }
 
     /**

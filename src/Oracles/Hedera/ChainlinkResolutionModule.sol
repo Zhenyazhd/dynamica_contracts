@@ -4,7 +4,7 @@ pragma solidity ^0.8.25;
 import {AggregatorV3Interface} from
     "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
-import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
+import {Initializable} from "@openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 
 /**
  * @title ChainlinkConfig
@@ -68,19 +68,15 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
 
     /**
      * @notice Resolves a market using Chainlink price feed data
-     * @dev Decodes resolutionData, fetches Chainlink data, and calculates payout ratios
-     * @param questionId The question ID (unused in this implementation)
-     * @param marketMakerAddress The market maker address (unused in this implementation)
+     * @dev Decodes resolutionData, fetches Chainlink data, and calculates payout ratio
      * @param outcomeSlotCount Number of possible outcomes
      * @param resolutionData Encoded ChainlinkConfig containing price feed addresses and parameters
      * @return payouts Array of payout numerators that sum to 1e18
      */
     function resolveMarket(
-        bytes32 questionId,
-        address marketMakerAddress,
         uint256 outcomeSlotCount,
         bytes calldata resolutionData
-    ) external onlyMarketResolutionManager returns (uint256[] memory payouts) {
+    ) external view onlyMarketResolutionManager returns (uint256[] memory payouts) {
         // Decode the configuration data
         ChainlinkConfig memory config = abi.decode(resolutionData, (ChainlinkConfig));
 
