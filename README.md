@@ -1,5 +1,26 @@
 # Dynamica - Prediction Market System
 
+## Current Stage 
+
+**Development Status: Active Research & Development**
+
+The current development phase focuses on implementing time-based reward reduction mechanisms to incentivize early and accurate predictions. The system is designed to decrease payouts over time periods, encouraging participants to make correct forecasts as early as possible.
+
+**Key Development Areas:**
+- **Reward Formula Revision**: Currently reviewing and optimizing the payout calculation formula for better incentive alignment
+- **V2 Architecture Migration**: Core logic is being migrated to v2 perpetual markets that will operate continuously without closure
+- **Epoch-Based System**: Implementing epoch-based mechanisms for dynamic reward distribution
+
+**Important Notice:**
+⚠️ **This codebase is currently in active development and should not be used in production environments.**
+- Code has not been thoroughly optimized for gas efficiency
+- Security audits have not been completed
+- Comprehensive testing is still in progress
+- The system may contain experimental features and untested components
+
+**Recommended Usage:**
+This version is intended for research, development, and testing purposes only. For production deployment, please wait for the completion of security audits and comprehensive testing.
+
 ## Overview
 
 Dynamica is a decentralized prediction market system built on blockchain. The system uses the LMSR (Logarithmic Market Scoring Rule) algorithm to provide liquidity and automatic price discovery.

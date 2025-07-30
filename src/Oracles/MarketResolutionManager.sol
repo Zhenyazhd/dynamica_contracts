@@ -122,6 +122,18 @@ contract MarketResolutionManager is Ownable  {
         emit MarketResolved(questionId, payouts);
     }
 
+
+
+    function getCurrentMarketData(bytes32 questionId)
+        external
+        returns (uint256[] memory payouts)
+    {
+        IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
+        _validateMarketResolution(config);
+        payouts = _getMarketPayouts(config);
+    }
+
+
     // ============ Private Functions ============
 
     /**

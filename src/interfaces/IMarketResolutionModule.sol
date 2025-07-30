@@ -28,4 +28,8 @@ interface IMarketResolutionModule {
         uint256 outcomeSlotCount,
         bytes calldata resolutionData
     ) external returns (uint256[] memory payouts);
+    
+    function getCurrentMarketData(bytes32 questionId)
+        external
+        returns (uint256[] memory payouts); 
 }

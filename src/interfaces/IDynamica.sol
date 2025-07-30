@@ -112,6 +112,7 @@ interface IDynamica {
     error NoFeesToWithdraw();
     /// @notice Thrown if the user has insufficient shares to sell
     error InsufficientSharesToSell(address user, uint256 required, uint256 available);
+    error InsufficientSharesToSell_(address user, int64 required, int64 available);
     /// @notice Thrown if the fee transfer fails
     error FeeTransferFailed();
     /// @notice Thrown if the return to owner transfer fails
@@ -124,6 +125,8 @@ interface IDynamica {
     error FailedToBurnToken();
     /// @notice Thrown if token transfer fails
     error FailedToTransferToken();
+    /// @notice Thrown if the return to owner transfer fails
+    error NotEnoughCollateralToCoverPayouts(uint256 shortfall);
 
     // ============ Structs ============
 
@@ -140,6 +143,8 @@ interface IDynamica {
         uint64 fee; ///< Fee in basis points
         int256 alpha; ///< Alpha parameter for LMSR
         int256 expLimit; ///< Exponential limit
+        uint32 expirationTime; ///< Expiration time
+        uint32 gamma; 
     }
 
     // ============ Constants ============

@@ -187,4 +187,15 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
             }
         }
     }
+
+  
+    function getCurrentMarketData(bytes32 questionId)
+        external
+        returns (uint256[] memory payouts)
+    {
+        payouts = new uint256[](2);
+        payouts[0] = 1000;
+        payouts[1] = 2000;
+        return payouts;
+    }
 }

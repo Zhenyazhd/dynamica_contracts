@@ -19,8 +19,11 @@ import {HederaResponseCodes} from "@hashgraph/hedera-smart-contracts/contracts/s
 import {KeyHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/KeyHelper.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
+
 import "forge-std/src/console.sol";
 import "forge-std/src/Test.sol";
+
 /**
  * @title MarketMaker
  * @dev A simple prediction market maker contract that allows users to buy and sell outcome tokens.
@@ -28,33 +31,106 @@ import "forge-std/src/Test.sol";
  *      Integrates with Hedera Token Service for outcome token management.
  */
 contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, IDynamica {
+    // ============ CONSTANTS ============
+    
     /// @notice Maximum fee that can be set (100% in basis points)
     uint64 public constant FEE_RANGE = 10_000;
+    
+    /// @notice Number of epochs for the market lifecycle
+    uint32 public constant EPOCH_NUMBER = 10;
+    
+    /// @notice Unit for gamma calculations (10,000 basis points)
+    uint32 public constant GAMMA_UNIT = 10_000;
+    
+    /// @notice Decimal precision for fixed-point arithmetic (18 decimals)
+    int256 public constant UNIT_DEC = 1e18;
 
-    /// @notice Array of payout numerators for each outcome
-    uint256[] public payoutNumerators;
-    /// @notice Payout denominator for calculating final payouts
-    uint256 public payoutDenominator;
+    // ============ STATE VARIABLES ============
+    
+    // Market Configuration
     /// @notice Address of the ERC20 collateral token
     address public collateralToken;
+    
     /// @notice The question that this prediction market resolves
     string public question;
-    /// @notice The fee rate in basis points (e.g., 300 = 3%)
-    uint64 public fee;
-    /// @notice Total fees received from trades
-    uint256 public feeReceived;
-    /// @notice Array of addresses for created outcome tokens
-    address[] public outcomeTokenAddresses;
-    /// @notice Array of supplies for each outcome token
-    int256[] public outcomeTokenSupplies;
-    /// @notice Decimals for outcome tokens
-    int32 public decimals;
-    /// @notice Address of the oracle manager that can resolve the market
-    address public oracleManager;
+    
     /// @notice Number of possible outcomes in the market
     uint256 public outcomeSlotCount;
+    
     /// @notice Expiration time of the market
     uint32 public expirationTime;
+    
+    /// @notice The fee rate in basis points (e.g., 300 = 3%)
+    uint64 public fee;
+    
+    /// @notice Address of the oracle manager that can resolve the market
+    address public oracleManager;
+    
+    /// @notice Decimals for outcome tokens
+    int32 public decimals;
+    
+    // Market State
+    /// @notice Array of payout numerators for each outcome
+    uint256[] public payoutNumerators;
+    
+    /// @notice Payout denominator for calculating final payouts
+    uint256 public payoutDenominator;
+    
+    /// @notice Total fees received from trades
+    uint256 public feeReceived;
+    
+    // Token Management
+    /// @notice Array of addresses for created outcome tokens
+    address[] public outcomeTokenAddresses;
+    
+    /// @notice Array of supplies for each outcome token
+    int256[] public outcomeTokenSupplies;
+    
+    // Epoch Management
+    /// @notice Duration of each epoch in seconds
+    uint32 public epochDuration;
+    
+    /// @notice Current epoch number (1-based)
+    uint32 public currentEpochNumber;
+    
+    /// @notice Array of gamma power values for each epoch
+    uint32[] public gammaPow;
+    
+    // Mathematical Parameters
+    /// @notice Decimal precision for collateral calculations
+    int256 public DEC_COLLATERAL;
+    
+    /// @notice Decimal precision for quantity calculations
+    int256 public DEC_Q;
+    
+    /// @notice Exponential limit to prevent overflow in calculations
+    SD59x18 public EXP_LIMIT_DEC;
+    
+    /// @notice Liquidity parameter that controls market depth and price sensitivity
+    SD59x18 public alpha;
+    
+    /// @notice Array of base prices for each outcome
+    uint256[] public basePrice;
+
+    // ============ STRUCTS ============
+    
+    /// @notice Structure to store epoch-specific data
+    struct EpochData {
+        /// @notice Start timestamp of the epoch
+        uint32 epochStart;
+        /// @notice Array of outcome token amounts for this epoch
+        int64[] outcomeTokenAmounts;
+    }
+
+    // ============ MAPPINGS ============
+    
+    /// @notice Mapping from epoch number to epoch data
+    mapping(uint256 => EpochData) public epochData;
+    
+    /// @notice Mapping from user address to epoch number to array of stakes for each outcome
+    mapping(address => mapping(uint256 => uint256[])) public stakesByEpoch;
+
+    // ============ MODIFIERS ============
 
     /// @notice Ensures the market is not yet resolved
     modifier marketNotResolved() {
@@ -100,18 +176,37 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         int32 _decimals,
         IHederaTokenService.HederaToken[] memory tokens
     ) internal {
+        // Set market configuration
         oracleManager = oracle;
         question = _question;
         outcomeSlotCount = _outcomeSlotCount;
+        
+        // Initialize arrays for market state
         payoutNumerators = new uint256[](_outcomeSlotCount);
         outcomeTokenAddresses = new address[](_outcomeSlotCount);
         outcomeTokenSupplies = new int256[](_outcomeSlotCount);
+        
+        // Calculate epoch duration based on remaining time
+        epochDuration = (expirationTime - uint32(block.timestamp)) / EPOCH_NUMBER;
+
+        // Initialize first epoch
+        currentEpochNumber = 1;
+        epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
+
+        // Transfer initial funding from sender to contract
         if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), _startFunding)) {
             revert TransferFailed();
         }
+        
+        // Set token decimals and initialize base price array
         decimals = _decimals;
+        basePrice = new uint256[](_outcomeSlotCount);
+        
+        // Calculate value per token for Hedera token creation
         uint256 valuePerToken = msg.value / _outcomeSlotCount;
         address tokenAddress;
+        
+        // Create outcome tokens for each possible outcome
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], _outcomeTokenAmounts);
             outcomeTokenAddresses[i] = tokenAddress;
@@ -162,6 +257,10 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @dev Emits OutcomeTokenTrade event
      */
     function makePrediction(int64[] calldata deltaOutcomeAmounts_) external marketNotResolved {
+        _updateEpoch();
+        if(stakesByEpoch[msg.sender][currentEpochNumber].length == 0){
+            stakesByEpoch[msg.sender][currentEpochNumber] = new uint256[](outcomeSlotCount);
+        }
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
             revert InvalidDeltaOutcomeAmountsLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
         }
@@ -181,6 +280,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      */
     function closeMarket(uint256[] calldata payouts) external onlyOracleManager marketNotResolved {
         uint256 _outcomeSlotCount = payouts.length;
+     
         if (_outcomeSlotCount != outcomeSlotCount) {
             revert MustHaveExactlyOutcomeSlotCount(_outcomeSlotCount, outcomeSlotCount);
         }
@@ -191,17 +291,28 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         if (payoutDenominator == 0) {
             revert PayoutIsAllZeroes();
         }
+
         uint256 totalPayout = 0;
-        uint256 usersOutcomes = 0;
+        uint256[] memory totalWeightedShares = new uint256[](_outcomeSlotCount);
+
+        for (uint256 i = 1; i <= EPOCH_NUMBER; i++) {
+            for (uint256 j = 0; j < outcomeSlotCount; j++) {
+                totalWeightedShares[j] += ((uint64(epochData[i].outcomeTokenAmounts[j])*gammaPow[i-1]) / GAMMA_UNIT);
+            }
+        }
+
         for (uint256 i = 0; i < _outcomeSlotCount; i++) {
             if (payoutNumerators[i] != 0) {
                 revert PayoutNumeratorAlreadySet(i);
             }
             payoutNumerators[i] = payouts[i];
-            usersOutcomes = IERC20(outcomeTokenAddresses[i]).totalSupply()
-                - getHtsBalanceERC20(outcomeTokenAddresses[i], address(this));
-            totalPayout += (usersOutcomes * payoutNumerators[i]) / payoutDenominator;
+            uint256 totalPayout_i = (totalWeightedShares[i] * payoutNumerators[i]) / payoutDenominator;
+            totalPayout += totalPayout_i;
+            if(totalWeightedShares[i] != 0){
+                basePrice[i] = (totalPayout_i * uint256(DEC_COLLATERAL))/ totalWeightedShares[i];
+            }
         }
+  
         _sendMarketsSharesToOwner(totalPayout);
         emit MarketResolved(msg.sender, payouts, payoutDenominator);
     }
@@ -211,17 +322,19 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
      */
     function redeemPayout() external marketResolved {
-        uint256 denominator = payoutDenominator;
-        uint256[] memory shares = new uint256[](outcomeSlotCount);
+        uint256 shares;
         uint256 totalPayout = 0;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            shares[i] = getHtsBalanceERC20(outcomeTokenAddresses[i], msg.sender);
-            if (shares[i] == 0 || payoutNumerators[i] == 0) continue;
-            if (shares[i] > 0 && payoutNumerators[i] > 0) {
-                _burnToken(outcomeTokenAddresses[i], int64(uint64(shares[i])), msg.sender);
+            shares = 0;
+            for (uint256 j = 1; j <= EPOCH_NUMBER; j++) {
+                if(stakesByEpoch[msg.sender][j].length > 0){
+                    shares += stakesByEpoch[msg.sender][j][i];
+                    totalPayout += (stakesByEpoch[msg.sender][j][i]*gammaPow[j-1]*basePrice[i] / uint256(DEC_Q)) / GAMMA_UNIT;
+                }
             }
-            totalPayout += (shares[i] * payoutNumerators[i]) / denominator;
-            shares[i] = 0;
+            if (shares > 0) {
+                _burnToken(outcomeTokenAddresses[i], int64(uint64(shares)), msg.sender);
+            }
         }
         if (totalPayout == 0) {
             revert NothingToRedeem();
@@ -278,7 +391,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     function _validateSellAmounts(int64[] calldata deltaOutcomeAmounts_) private view {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] < 0) {
-                uint256 balance = getHtsBalanceERC20(outcomeTokenAddresses[i], msg.sender);
+                uint256 balance = stakesByEpoch[msg.sender][currentEpochNumber][i];
                 uint256 amount = uint256(uint64(-deltaOutcomeAmounts_[i]));
                 if (balance < amount) {
                     revert InsufficientSharesToSell(msg.sender, amount, balance);
@@ -298,7 +411,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             uint256 shouldPay = (netCost * FEE_RANGE) / (FEE_RANGE - fee);
             feeAmount = shouldPay - netCost;
             feeReceived += feeAmount;
-            if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), netCost)) {
+            if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), shouldPay)) {
                 revert TransferFailed();
             }
         } else {
@@ -316,15 +429,19 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param deltaOutcomeAmounts_ Array of token amount changes
      * @dev Mints or burns outcome tokens as needed
      */
-    function _updateUserShares(int64[] calldata deltaOutcomeAmounts_) private {
+    function _updateUserShares(int64[] calldata deltaOutcomeAmounts_) private {    
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] > 0) {
                 int64 mintAmount = deltaOutcomeAmounts_[i];
                 outcomeTokenSupplies[i] += int256(mintAmount);
+                stakesByEpoch[msg.sender][currentEpochNumber][i] += uint256(uint64(mintAmount));
+                epochData[currentEpochNumber].outcomeTokenAmounts[i] += mintAmount;
                 _mintToken(outcomeTokenAddresses[i], mintAmount, msg.sender);
             } else if (deltaOutcomeAmounts_[i] < 0) {
                 int64 burnAmount = -deltaOutcomeAmounts_[i];
                 outcomeTokenSupplies[i] -= int256(burnAmount);
+                stakesByEpoch[msg.sender][currentEpochNumber][i] -= uint256(uint64(burnAmount));
+                epochData[currentEpochNumber].outcomeTokenAmounts[i] -= burnAmount;
                 _burnToken(outcomeTokenAddresses[i], burnAmount, msg.sender);
             }
         }
@@ -382,12 +499,35 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     }
 
     /**
+     * @notice Updates the current epoch based on elapsed time since epoch start
+     * NOTE: public - just for testing
+     * @dev Calculates if enough time has passed to advance to the next epoch
+     *      and initializes new epoch data if necessary. Ensures epoch number
+     *      doesn't exceed the maximum EPOCH_NUMBER.
+     */
+    function _updateEpoch() public {       
+        if (block.timestamp >= epochData[currentEpochNumber].epochStart + epochDuration) {
+            // Calculate how many epochs have passed
+            uint32 currentEpoch = (uint32(block.timestamp) - epochData[currentEpochNumber].epochStart) / epochDuration;
+            // Update epoch number, but don't exceed maximum
+            currentEpochNumber = currentEpochNumber + currentEpoch > EPOCH_NUMBER ? EPOCH_NUMBER : currentEpochNumber + currentEpoch;
+            // Initialize new epoch data
+            epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
+            epochData[currentEpochNumber].outcomeTokenAmounts = new int64[](outcomeSlotCount);
+        }
+    }
+
+    /**
      * @notice Sends remaining market shares to the owner after resolution
      * @param totalPayout The total payout amount
      * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner(uint256 totalPayout) private {
-        uint256 returnToOwner = getHtsBalanceERC20(collateralToken, address(this)) - totalPayout;
+        uint256 balance = IERC20(collateralToken).balanceOf(address(this));
+        if(balance < totalPayout) {
+            revert NotEnoughCollateralToCoverPayouts(totalPayout - balance);
+        }
+        uint256 returnToOwner = balance - totalPayout;
         if (!IERC20(collateralToken).transfer(owner(), returnToOwner)) {
             revert TransferFailed();
         }

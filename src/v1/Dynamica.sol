@@ -23,17 +23,8 @@ import "forge-std/src/console.sol";
  * @notice This contract extends MarketMaker with LMSR-specific pricing and cost calculation logic
  */
 contract Dynamica is MarketMaker {
-    receive() external payable {}
+    receive() external payable {}    
 
-    /// @notice Decimal precision for fixed-point arithmetic (18 decimals)
-    int256 public constant UNIT_DEC = 1e18;
-    int256 public DEC_COLLATERAL;
-    int256 public DEC_Q;
-
-    /// @notice Exponential limit to prevent overflow in calculations
-    SD59x18 public EXP_LIMIT_DEC;
-    /// @notice Liquidity parameter that controls market depth and price sensitivity
-    SD59x18 public alpha;
 
     /**
      * @dev Constructor that disables initializers for implementation contract
@@ -53,14 +44,26 @@ contract Dynamica is MarketMaker {
         initializer
     {
         __Ownable_init(config.owner);
+        
+        fee = config.fee;
         collateralToken = config.collateralToken;
+        expirationTime = config.expirationTime;
+        
         uint8 collateralTokenDecimals = IERC20(collateralToken).decimals();
+        
         if (collateralTokenDecimals > 18) {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
-        fee = config.fee;
-        alpha = sd((config.alpha * UNIT_DEC) / 100);
-        EXP_LIMIT_DEC = sd((config.expLimit * UNIT_DEC) / 100);
+          
+        gammaPow = new uint32[](EPOCH_NUMBER);
+        gammaPow[0] = GAMMA_UNIT;
+        epochData[0].outcomeTokenAmounts = new int64[](config.outcomeSlotCount);
+        for (uint32 i = 1; i < EPOCH_NUMBER; i++) {
+            epochData[i].outcomeTokenAmounts = new int64[](config.outcomeSlotCount);
+            gammaPow[i] = (gammaPow[i - 1] * config.gamma) / GAMMA_UNIT;
+        }
+        epochData[EPOCH_NUMBER].outcomeTokenAmounts = new int64[](config.outcomeSlotCount);
+
         initializeMarket(
             config.oracle,
             config.question,
@@ -70,8 +73,11 @@ contract Dynamica is MarketMaker {
             config.decimals,
             tokens
         );
+        
+        alpha = sd((config.alpha * UNIT_DEC) / 100);   
+        EXP_LIMIT_DEC = sd((config.expLimit * UNIT_DEC) / 100);
         DEC_COLLATERAL = int256(10 ** collateralTokenDecimals);
-        DEC_Q = int256(10 ** uint32(decimals));
+        DEC_Q = int256(10 ** uint32(decimals)); 
     }
 
     /**
@@ -137,7 +143,6 @@ contract Dynamica is MarketMaker {
         SD59x18 cOld = bOld.mul(ln(sumOld).add(offOld));
         SD59x18 cNew = bNew.mul(ln(sumNew).add(offNew));
         netCost = (cNew.sub(cOld).unwrap() * DEC_COLLATERAL / UNIT_DEC) / DEC_Q;
-        console.log("netCost", netCost);
     }
 
     /**

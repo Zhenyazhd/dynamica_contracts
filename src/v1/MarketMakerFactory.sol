@@ -133,6 +133,7 @@ contract DynamicaFactory is Ownable {
         cloneAddress = payable(Clones.clone(implementationMarketMaker));
         IERC20(config.collateralToken).approve(cloneAddress, config.startFunding);
         address resolutionModule = _createAndInitializeResolutionModule(resolutionConfig.resolutionModuleType);
+        config.expirationTime = resolutionConfig.expirationTime;
         _registerMarketWithResolutionManager(
             config.question,
             cloneAddress,
