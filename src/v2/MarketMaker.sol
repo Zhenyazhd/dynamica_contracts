@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-
 /*
 ██████╗ ██╗   ██╗███╗   ██╗ █████╗ ███╗   ███╗██╗ ██████╗ █████╗ 
 ██╔══██╗╚██╗ ██╔╝████╗  ██║██╔══██╗████╗ ████║██║██╔════╝██╔══██╗
@@ -14,86 +13,120 @@ pragma solidity ^0.8.25;
 import {IERC20} from "../interfaces/IERC20.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
-import {IHederaTokenService} from "hedera-smart-contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
-import {HederaTokenService} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/HederaTokenService.sol";
-import {HederaResponseCodes} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/HederaResponseCodes.sol";
-import {KeyHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/KeyHelper.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1155Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import {ERC1155HolderUpgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
 import "forge-std/src/console.sol";
 import "forge-std/src/Test.sol";
+
 /**
- * @title MarketMaker
- * @dev A simple prediction market maker contract that allows users to buy and sell outcome tokens.
- *      Implements basic market making logic for binary and multi-outcome prediction markets.
- *      Integrates with Hedera Token Service for outcome token management.
+ * @title MarketMaker v2
+ * @dev A perpetual prediction market maker contract that allows users to buy and sell outcome tokens.
+ *      Implements epoch and period-based market making logic for multi-outcome prediction markets.
+ *      Uses ERC1155 tokens for outcome representation with time-weighted rewards.
+ *      Supports continuous trading with automatic epoch transitions.
  */
-contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, IDynamica {
+contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, ERC1155HolderUpgradeable, IDynamica {
+    
+    // ============ CONSTANTS ============
+    
+    /// @notice Maximum number of outcome slots supported
     uint256 public constant MAX_SLOT_COUNT = 10;
-    /// @notice Maximum fee that can be set (100% in basis points)
-    uint64 public constant FEE_RANGE = 10_000;
     
-    /// @notice Gamma unit for calculations
-    uint32 public constant GAMMA_UNIT = 10_000;
+    /// @notice Maximum fee/gamma that can be set (100% in basis points)
+    uint32 public constant RANGE = 10_000;
     
-    /// @notice Unit decimal for calculations
+    /// @notice Unit decimal for calculations (18 decimals)
     int256 public constant UNIT_DEC = 1e18;
 
+    // ============ STATE VARIABLES ============
+    
+    // Time Management
+    /// @notice Duration of each epoch in seconds
     uint32 public epochDuration = 10 days;
+    
+    /// @notice Duration of each period within an epoch in seconds
     uint32 public periodDuration = 1 days;
+    
+    /// @notice Current period number (1-based)
     uint32 public currentPeriodNumber = 1;
+    
+    /// @notice Current epoch number (1-based)
     uint32 public currentEpochNumber = 1;
     
+    // Decimal Precision
     /// @notice Collateral token decimals
     int256 public DEC_COLLATERAL;
     
     /// @notice Outcome token decimals
     int256 public DEC_Q;
 
+    /// @notice Array of gamma power values for time-weighted rewards
     uint32[] public gammaPow;
-  
 
+    // ============ STRUCTS ============
+    
+    /// @notice Structure to store epoch-specific data
     struct EpochData {
+        /// @notice Start timestamp of the epoch
         uint32 epochStart;
+        /// @notice Payout denominator for calculating final payouts
         uint256 payoutDenominator;
+        /// @notice Array of base prices for each outcome
         uint256[MAX_SLOT_COUNT] basePrice;
+        /// @notice Array of payout numerators for each outcome
         uint256[MAX_SLOT_COUNT] payoutNumerators;
-        int256[MAX_SLOT_COUNT] outcomeTokenSupplies; 
+        /// @notice Array of supplies for each outcome token
+        uint256[MAX_SLOT_COUNT] outcomeTokenSupplies; 
     }
 
+    /// @notice Structure to store period-specific data
     struct PeriodData {
+        /// @notice Epoch number this period belongs to
         uint32 epochNumber;
+        /// @notice Start timestamp of the period
         uint32 periodStart;
-        int64[MAX_SLOT_COUNT] outcomeTokenAmounts;
-        mapping(address => int64[MAX_SLOT_COUNT]) stakesByPeriod;
+        /// @notice Array of outcome token amounts for this period
+        uint256[MAX_SLOT_COUNT] outcomeTokenAmounts;
     }
 
+    // ============ MAPPINGS ============
+    
+    /// @notice Mapping from epoch number to epoch data
     mapping(uint256 => EpochData) public epochData;
-    // periodData[epochNumber][periodNumber]
+    
+    /// @notice Mapping from epoch number to period number to period data
     mapping(uint256 => mapping(uint256 => PeriodData)) public periodData;
-       
+    
+    // Market Configuration
     /// @notice Address of the ERC20 collateral token
     address public collateralToken;
+    
     /// @notice The question that this prediction market resolves
     string public question;
+    
     /// @notice The fee rate in basis points (e.g., 300 = 3%)
     uint64 public fee;
+    
     /// @notice Total fees received from trades
     uint256 public feeReceived;
-    /// @notice Array of addresses for created outcome tokens
-    address[MAX_SLOT_COUNT] public outcomeTokenAddresses;
-    /// @notice Array of supplies for each outcome token
-    //int256[MAX_SLOT_COUNT] public outcomeTokenSupplies; // переносить из эпохи в эпоху? но сохранять награды юзера? 
+    
     /// @notice Decimals for outcome tokens
     int32 public decimals;
+    
     /// @notice Address of the oracle manager that can resolve the market
     address public oracleManager;
+    
     /// @notice Number of possible outcomes in the market
     uint256 public outcomeSlotCount;
+    
     /// @notice Expiration time of the market
     uint32 public expirationTime;
 
-    /// @notice Ensures the market is not yet resolved
+    // ============ MODIFIERS ============
+
+    /// @notice Ensures the epoch is not yet resolved
     modifier epochNotResolved(uint256 epoch) {
         if (epochData[epoch].payoutDenominator != 0) {
             revert MarketAlreadyResolved();
@@ -101,7 +134,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         _;
     }
 
-    /// @notice Ensures the market is resolved
+    /// @notice Ensures the epoch is resolved
     modifier epochResolved(uint256 epoch) {
         if (epochData[epoch].payoutDenominator == 0) {
             revert MarketNotResolved();
@@ -117,6 +150,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         _;
     }
 
+    // ============ INITIALIZATION ============
+
     /**
      * @notice Initializes the market with funding and outcome configuration
      * @param oracle The oracle address that will resolve the condition
@@ -125,81 +160,51 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param _startFunding The amount of funding to add to the market
      * @param _outcomeTokenAmounts The initial token amounts for each outcome
      * @param _decimals The decimals for the outcome tokens
-     * @param tokens Array of HederaToken structs for each outcome
-     * @dev Emits MarketInitialized and TokenCreated events
+     * @dev Emits MarketInitialized event
      */
     function initializeMarket(
         address oracle,
         string calldata _question,
         uint256 _outcomeSlotCount,
         uint256 _startFunding,
-        int64 _outcomeTokenAmounts,
-        int32 _decimals,
-        IHederaTokenService.HederaToken[] memory tokens
+        uint256 _outcomeTokenAmounts,
+        int32 _decimals 
     ) internal {
         oracleManager = oracle;
         question = _question;
         outcomeSlotCount = _outcomeSlotCount;
 
+        // Initialize first epoch and period
         epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
-        periodData[currentPeriodNumber][currentEpochNumber].epochNumber = currentEpochNumber;
-        periodData[currentPeriodNumber][currentEpochNumber].periodStart = uint32(block.timestamp);
+        periodData[currentEpochNumber][currentPeriodNumber].epochNumber = currentEpochNumber;
+        periodData[currentEpochNumber][currentPeriodNumber].periodStart = uint32(block.timestamp);
      
+        // Transfer initial funding
         if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), _startFunding)) {
             revert TransferFailed();
         }
-        decimals = _decimals;
         
-        // Initialize decimal constants
+        // Set decimals and initialize decimal constants
+        decimals = _decimals;
         uint8 collateralTokenDecimals = IERC20(collateralToken).decimals();
         DEC_COLLATERAL = int256(10 ** collateralTokenDecimals);
         DEC_Q = int256(10 ** uint32(_decimals));
         
-        uint256 valuePerToken = msg.value / _outcomeSlotCount;
-        address tokenAddress;
+        // Create initial outcome tokens
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], _outcomeTokenAmounts);
-            outcomeTokenAddresses[i] = tokenAddress;
-            epochData[currentEpochNumber].outcomeTokenSupplies[i] = int256(_outcomeTokenAmounts);
-            emit TokenCreated(tokenAddress, uint8(i));
+            _mint(
+                address(this),
+                shareId(currentEpochNumber, currentPeriodNumber, i),
+                _outcomeTokenAmounts,
+                ""
+            );            
+            epochData[currentEpochNumber].outcomeTokenSupplies[i] = _outcomeTokenAmounts;
         }
+        
         emit MarketInitialized(msg.value, _question, _outcomeTokenAmounts);
     }
 
-
-    /**
-     * @notice Creates a new outcome token using Hedera Token Service
-     * @param token HederaToken struct for the outcome
-     * @param initialSupply Initial supply for the outcome token
-     * @return responseCode Hedera response code
-     * @return tokenAddress Address of the created token
-     * @dev Emits TokenCreated event
-     */
-    function createToken(IHederaTokenService.HederaToken memory token, int64 initialSupply)
-        public
-        payable
-        onlyInitializing
-        returns (int256 responseCode, address tokenAddress)
-    {
-        token.treasury = address(this);
-        token.expiry.autoRenewAccount = address(this);
-        token.tokenKeys = new IHederaTokenService.TokenKey[](1);
-        IHederaTokenService.TokenKey memory supplyKey = IHederaTokenService.TokenKey({
-            keyType: 16,
-            key: IHederaTokenService.KeyValue({
-                inheritAccountKey: false,
-                contractId: address(this),
-                ed25519: "",
-                ECDSA_secp256k1: "",
-                delegatableContractId: address(0)
-            })
-        });
-        token.tokenKeys[0] = supplyKey;
-        (responseCode, tokenAddress) = createFungibleToken(token, initialSupply, decimals);
-        if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert FailedToCreateToken();
-        }
-    }
+    // ============ PUBLIC FUNCTIONS ============
 
     /**
      * @notice Makes a prediction by buying or selling outcome tokens
@@ -207,107 +212,143 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      *        Positive values = buying tokens, Negative values = selling tokens
      * @dev Emits OutcomeTokenTrade event
      */
-    function makePrediction(int64[] memory deltaOutcomeAmounts_) external epochNotResolved(currentEpochNumber) {
-        PeriodData storage pd = periodData[currentEpochNumber][currentPeriodNumber];
+    function makePrediction(int256[] memory deltaOutcomeAmounts_) external epochNotResolved(currentEpochNumber) {
+        // Update epoch and period if needed
         _updateEpochAndPeriod();
+        
+        // Get current period data
+        PeriodData storage pd = periodData[currentEpochNumber][currentPeriodNumber];
+        
+        // Validate input length
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
             revert InvalidDeltaOutcomeAmountsLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
         }
-        _validateSellAmounts(pd, deltaOutcomeAmounts_);
+        
+        // Validate sell amounts
+        _validateSellAmounts(deltaOutcomeAmounts_);
+        
+        // Calculate net cost and process payment
         int256 netCost = calcNetCost(deltaOutcomeAmounts_);
         bool isBuy = netCost > 0;
         uint256 cost = isBuy ? uint256(netCost) : uint256(-netCost);
-        _updateUserShares(pd,deltaOutcomeAmounts_);
+        
+        // Update user shares
+        _updateUserShares(pd, deltaOutcomeAmounts_);
+        
+        // Handle payment and fees
         uint256 feeAmount = _handleTradePayment(cost, isBuy);
+        
         emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
     }
 
+    /**
+     * @notice Returns the payout numerator for a specific outcome in the previous epoch
+     * @param i Index of the outcome
+     * @return The payout numerator
+     */
     function payoutNumerators(uint256 i) external view returns (uint256) {
         return epochData[currentEpochNumber-1].payoutNumerators[i];
     }
 
+    /**
+     * @notice Returns the payout denominator for the previous epoch
+     * @return The payout denominator
+     */
     function payoutDenominator() external view returns (uint256) {
         return epochData[currentEpochNumber-1].payoutDenominator;
     }
 
-    function outcomeTokenSupplies(uint256 i) external view returns (int256) {
+    /**
+     * @notice Returns the supply for a specific outcome token in the current epoch
+     * @param i Index of the outcome
+     * @return The token supply
+     */
+    function outcomeTokenSupplies(uint256 i) external view returns (uint256) {
         return epochData[currentEpochNumber].outcomeTokenSupplies[i];
     }
 
     /**
-     * @notice Closes the market by resolving the condition with payout ratios
+     * @notice Closes the current epoch by resolving it with payout ratios
      * @param payouts Array of payout numerators for each outcome
-     * @dev Only callable by the oracle manager. Emits epochResolved event.
+     * @dev Only callable by the oracle manager. Emits MarketResolved event.
      */
     function closeMarket(uint256[] calldata payouts) external onlyOracleManager epochNotResolved(currentEpochNumber) {
         uint256 _outcomeSlotCount = payouts.length;
+        
+        // Validate payout array length
         if (_outcomeSlotCount != outcomeSlotCount) {
             revert MustHaveExactlyOutcomeSlotCount(_outcomeSlotCount, outcomeSlotCount);
         }
-        if (epochData[currentEpochNumber].payoutNumerators.length != _outcomeSlotCount) {
-            revert ConditionNotPreparedOrFound();
-        }
+        
+        // Calculate payout denominator
         uint256 payoutDenominator_ = _calculatePayoutDenominator(payouts);
-        if (epochData[currentEpochNumber].payoutDenominator == 0) {
+        if (payoutDenominator_ == 0) {
             revert PayoutIsAllZeroes();
         }
+        
         epochData[currentEpochNumber].payoutDenominator = payoutDenominator_;
 
-
+        // Calculate total weighted shares across all periods in the epoch
         uint256[] memory totalWeightedShares = new uint256[](_outcomeSlotCount);
-        uint256 l = epochDuration/periodDuration;
-        for (uint256 i = 1; i <= l; i++) {
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        
+        for (uint256 i = 1; i <= periodsPerEpoch; i++) {
             for (uint256 j = 0; j < outcomeSlotCount; j++) {
-                if(periodData[currentEpochNumber][i].outcomeTokenAmounts.length != 0){
-                    totalWeightedShares[j] += ((uint64(periodData[currentEpochNumber][i].outcomeTokenAmounts[j])*gammaPow[i-1]) / GAMMA_UNIT);
+                if (periodData[currentEpochNumber][i].outcomeTokenAmounts[j] != 0) {
+                    totalWeightedShares[j] += ((periodData[currentEpochNumber][i].outcomeTokenAmounts[j] * gammaPow[i-1]) / RANGE);
                 }
             }
         }
 
+        // Set payout numerators and calculate base prices
         uint256 totalPayout = 0;
         for (uint256 i = 0; i < _outcomeSlotCount; i++) {
             if (epochData[currentEpochNumber].payoutNumerators[i] != 0) {
                 revert PayoutNumeratorAlreadySet(i);
             }
+            
             epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
-            if(totalWeightedShares[i] != 0){
+            
+            if (totalWeightedShares[i] != 0) {
                 uint256 totalPayout_i = (totalWeightedShares[i] * payouts[i]) / payoutDenominator_;
                 totalPayout += totalPayout_i;
-                if(totalWeightedShares[i] != 0) {
-                    epochData[currentEpochNumber].basePrice[i] = (totalPayout_i * uint256(DEC_COLLATERAL))/ totalWeightedShares[i];
-                }
+                epochData[currentEpochNumber].basePrice[i] = (totalPayout_i * uint256(DEC_COLLATERAL)) / totalWeightedShares[i];
             }
         }
-        //_sendMarketsSharesToOwner(totalPayout);
+        
+        _sendMarketsSharesToOwner(totalPayout);
         emit MarketResolved(msg.sender, payouts, epochData[currentEpochNumber].payoutDenominator);
     }
 
     /**
-     * @notice Redeems payout for resolved condition
+     * @notice Redeems payout for resolved epoch
      * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
      */
     function redeemPayout() external epochResolved(currentEpochNumber) {
         uint256 totalPayout = 0;
-        int64 shares = 0;
-        uint256 l = epochDuration/periodDuration;
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        
+        // Calculate payout for each outcome across all periods
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            shares = 0;
-            for (uint256 j = 1; j <= l; j++) {
-                if(periodData[currentEpochNumber][j].stakesByPeriod[msg.sender].length > 0){
-                    shares += periodData[currentEpochNumber][j].stakesByPeriod[msg.sender][i];
-                    totalPayout += (uint64(periodData[currentEpochNumber][j].stakesByPeriod[msg.sender][i])*gammaPow[j-1]*epochData[currentEpochNumber].basePrice[i] / uint256(DEC_Q)) / GAMMA_UNIT;
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                uint256 id = shareId(currentEpochNumber, j, i);
+                uint256 balance = balanceOf(msg.sender, id);
+                
+                if (balance > 0) {
+                    totalPayout += (balance * gammaPow[j-1] * epochData[currentEpochNumber].basePrice[i] / uint256(DEC_Q)) / RANGE;
+                    _burnToken(msg.sender, balance, id);
                 }
             }
-            if (shares > 0) {
-                _burnToken(outcomeTokenAddresses[i], int64(uint64(shares)), msg.sender);
-            }
         }
+        
         if (totalPayout == 0) {
             revert NothingToRedeem();
         }
+        
         if (!IERC20(collateralToken).transfer(msg.sender, totalPayout)) {
             revert TransferFailed();
         }
+        
         emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
     }
 
@@ -316,8 +357,9 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @param outcomeTokenAmounts Array of token amount changes
      * @return netCost The net cost of the trade (positive = user pays, negative = user receives)
      */
-    function calcNetCost(int64[] memory outcomeTokenAmounts) public view virtual returns (int256) {
+    function calcNetCost(int256[] memory outcomeTokenAmounts) public view virtual returns (int256) {
         // This function should be implemented by derived contracts
+        // revert("Not implemented");
     }
 
     /**
@@ -326,8 +368,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @dev Only callable by owner. Emits FeeChanged event.
      */
     function changeFee(uint64 _fee) external onlyOwner {
-        if (_fee >= FEE_RANGE) {
-            revert FeeMustBeLessThanRange(_fee, FEE_RANGE);
+        if (_fee >= RANGE) {
+            revert FeeMustBeLessThanRange(_fee, RANGE);
         }
         fee = _fee;
         emit FeeChanged(block.timestamp, _fee);
@@ -349,18 +391,20 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         emit FeeWithdrawal(block.timestamp, amount);
     }
 
+    // ============ INTERNAL FUNCTIONS ============
+
     /**
      * @notice Validates that user has enough shares to sell
      * @param deltaOutcomeAmounts_ Array of token amount changes
      * @dev Reverts if user does not have enough shares
      */
-    function _validateSellAmounts(PeriodData storage pd, int64[] memory deltaOutcomeAmounts_) private view {
+    function _validateSellAmounts(int256[] memory deltaOutcomeAmounts_) private view {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] < 0) {
-                int64 balance = pd.stakesByPeriod[msg.sender][i];
-                int64 amount = -deltaOutcomeAmounts_[i];
+                uint256 balance = balanceOf(msg.sender, shareId(currentEpochNumber, currentPeriodNumber, i));
+                uint256 amount = uint256(-deltaOutcomeAmounts_[i]);
                 if (balance < amount) {
-                    revert InsufficientSharesToSell_(msg.sender, amount, balance);
+                    revert InsufficientSharesToSell(msg.sender, amount, balance);
                 }
             }
         }
@@ -374,14 +418,14 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      */
     function _handleTradePayment(uint256 netCost, bool isBuy) private returns (uint256 feeAmount) {
         if (isBuy) {
-            uint256 shouldPay = (netCost * FEE_RANGE) / (FEE_RANGE - fee);
+            uint256 shouldPay = (netCost * RANGE) / (RANGE - fee);
             feeAmount = shouldPay - netCost;
             feeReceived += feeAmount;
-            if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), netCost)) {
+            if (!IERC20(collateralToken).transferFrom(msg.sender, address(this), shouldPay)) {
                 revert TransferFailed();
             }
         } else {
-            feeAmount = (netCost * fee) / FEE_RANGE;
+            feeAmount = (netCost * fee) / RANGE;
             feeReceived += feeAmount;
             uint256 payoutAmount = netCost - feeAmount;
             if (!IERC20(collateralToken).transfer(msg.sender, payoutAmount)) {
@@ -392,61 +436,48 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
 
     /**
      * @notice Updates user shares for each outcome
+     * @param pd Period data storage reference
      * @param deltaOutcomeAmounts_ Array of token amount changes
      * @dev Mints or burns outcome tokens as needed
      */
-    function _updateUserShares(PeriodData storage pd, int64[] memory deltaOutcomeAmounts_) private {
+    function _updateUserShares(PeriodData storage pd, int256[] memory deltaOutcomeAmounts_) private {
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            int64 deltaOutcomeAmount = deltaOutcomeAmounts_[i];
-            epochData[currentEpochNumber].outcomeTokenSupplies[i] += int256(deltaOutcomeAmount);
-            pd.outcomeTokenAmounts[i] += deltaOutcomeAmount;
-            pd.stakesByPeriod[msg.sender][i] += deltaOutcomeAmount;
             if (deltaOutcomeAmounts_[i] > 0) {
-                _mintToken(outcomeTokenAddresses[i], deltaOutcomeAmounts_[i], msg.sender);
+                // Mint tokens for buying
+                epochData[currentEpochNumber].outcomeTokenSupplies[i] += uint256(deltaOutcomeAmounts_[i]);
+                pd.outcomeTokenAmounts[i] += uint256(deltaOutcomeAmounts_[i]);
+                _mintToken(msg.sender, uint256(deltaOutcomeAmounts_[i]), shareId(currentEpochNumber, currentPeriodNumber, i));
             } else if (deltaOutcomeAmounts_[i] < 0) {
-                _burnToken(outcomeTokenAddresses[i], -deltaOutcomeAmounts_[i], msg.sender);
+                // Burn tokens for selling
+                epochData[currentEpochNumber].outcomeTokenSupplies[i] -= uint256(-deltaOutcomeAmounts_[i]);
+                pd.outcomeTokenAmounts[i] -= uint256(-deltaOutcomeAmounts_[i]);
+                _burnToken(msg.sender, uint256(-deltaOutcomeAmounts_[i]), shareId(currentEpochNumber, currentPeriodNumber, i));
             }
         }
     }
 
     /**
      * @notice Burns tokens from a user
-     * @param tokenAddress Address of the token
-     * @param burnAmount Amount to burn
      * @param from Address to burn from
+     * @param burnAmount Amount to burn
+     * @param id The token id
      * @dev Emits TokenBurned event
      */
-    function _burnToken(address tokenAddress, int64 burnAmount, address from) internal {
-        int64[] memory serialNumbersBytes = new int64[](0);
-        int256 response = transferToken(tokenAddress, from, address(this), burnAmount);
-        if (response != HederaResponseCodes.SUCCESS) {
-            revert FailedToTransferToken();
-        }
-        (int256 responseCode,) = burnToken(tokenAddress, burnAmount, serialNumbersBytes);
-        if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert FailedToBurnToken();
-        }
-        emit TokenBurned(from, tokenAddress, burnAmount);
+    function _burnToken(address from, uint256 burnAmount, uint256 id) internal {
+        _burn(from, id, burnAmount);
+        emit TokenBurned(from, id, burnAmount);
     }
 
     /**
      * @notice Mints tokens to a user
-     * @param tokenAddress Address of the token
-     * @param mintAmount Amount to mint
      * @param to Address to mint to
+     * @param mintAmount Amount to mint
+     * @param id The token id
      * @dev Emits TokenMinted event
      */
-    function _mintToken(address tokenAddress, int64 mintAmount, address to) internal {
-        bytes[] memory serialNumbersBytes = new bytes[](0);
-        (int256 responseCode,,) = mintToken(tokenAddress, mintAmount, serialNumbersBytes);
-        if (responseCode != HederaResponseCodes.SUCCESS) {
-            revert FailedToMintToken();
-        }
-        int256 response = transferToken(tokenAddress, address(this), to, mintAmount);
-        if (response != HederaResponseCodes.SUCCESS) {
-            revert FailedToTransferToken();
-        }
-        emit TokenMinted(to, tokenAddress, mintAmount);
+    function _mintToken(address to, uint256 mintAmount, uint256 id) internal {
+        _mint(to, id, mintAmount, "");
+        emit TokenMinted(to, id, mintAmount);
     }
 
     /**
@@ -460,22 +491,30 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         }
     }
 
+    /**
+     * @notice Updates the current epoch and period based on elapsed time
+     * @dev Automatically advances epochs and periods as time passes
+     */
     function _updateEpochAndPeriod() public {       
         uint32 now32 = uint32(block.timestamp);
         uint32 newEpoch = 0;
+        
+        // Check if epoch should advance
         if (now32 >= epochData[currentEpochNumber].epochStart + epochDuration) {
             newEpoch = (now32 - epochData[currentEpochNumber].epochStart) / epochDuration;
             currentEpochNumber += newEpoch;
             epochData[currentEpochNumber].epochStart = now32;
             currentPeriodNumber = 1; 
             periodData[currentEpochNumber][currentPeriodNumber].periodStart = now32;
-            periodData[currentPeriodNumber][currentEpochNumber].epochNumber = currentEpochNumber;
+            periodData[currentEpochNumber][currentPeriodNumber].epochNumber = currentEpochNumber;
         }
-        if(newEpoch == 0 && now32 >= periodData[currentEpochNumber][currentPeriodNumber].periodStart + periodDuration) {
+        
+        // Check if period should advance within current epoch
+        if (newEpoch == 0 && now32 >= periodData[currentEpochNumber][currentPeriodNumber].periodStart + periodDuration) {
             uint32 currentPeriod = (now32 - periodData[currentEpochNumber][currentPeriodNumber].periodStart) / periodDuration;
             currentPeriodNumber += currentPeriod;
             periodData[currentEpochNumber][currentPeriodNumber].periodStart = now32;
-            periodData[currentPeriodNumber][currentEpochNumber].epochNumber = currentEpochNumber;
+            periodData[currentEpochNumber][currentPeriodNumber].epochNumber = currentEpochNumber;
         }
     }
 
@@ -485,20 +524,51 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner(uint256 totalPayout) private {
-        uint256 returnToOwner = getHtsBalanceERC20(collateralToken, address(this)) - totalPayout;
+        uint256 balance = IERC20(collateralToken).balanceOf(address(this));
+        if (balance < totalPayout) {
+            revert NotEnoughCollateralToCoverPayouts(totalPayout - balance);
+        }
+        uint256 returnToOwner = balance - totalPayout;
         if (!IERC20(collateralToken).transfer(owner(), returnToOwner)) {
             revert TransferFailed();
         }
         emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
     }
 
+    // ============ OVERRIDE FUNCTIONS ============
+
     /**
-     * @notice Returns the ERC20 balance for a given token and address
-     * @param token Address of the token
-     * @param to Address to check balance for
-     * @return Balance of the token for the address
+     * @notice Checks if the contract supports a specific interface
+     * @param interfaceId The interface identifier
+     * @return True if the interface is supported
      */
-    function getHtsBalanceERC20(address token, address to) public view returns (uint256) {
-        return IERC20(token).balanceOf(to);
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC1155Upgradeable, ERC1155HolderUpgradeable)
+        returns (bool)
+    {
+        return ERC1155Upgradeable.supportsInterface(interfaceId);
+    }
+
+    /**
+     * @notice Calculates the unique share ID for (epoch, period, outcome)
+     * @param epoch 1-based epoch number (1..∞)
+     * @param period 1-based period number within epoch (1..periodsPerEpoch)
+     * @param outcome 0-based outcome index (0..outcomeSlotCount-1)
+     * @return The unique share ID
+     * @dev Uses a hierarchical ID system: epoch * periodsPerEpoch * outcomeSlotCount + period * outcomeSlotCount + outcome
+     */
+    function shareId(
+        uint256 epoch,
+        uint256 period,
+        uint256 outcome
+    ) public view returns (uint256) {
+        uint256 e = epoch - 1;
+        uint256 p = period - 1;
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        uint256 epochOffset = e * periodsPerEpoch * outcomeSlotCount;
+        uint256 periodOffset = p * outcomeSlotCount;
+        return epochOffset + periodOffset + outcome;
     }
 }

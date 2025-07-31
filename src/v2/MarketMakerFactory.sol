@@ -20,43 +20,58 @@ import {ChainlinkResolutionModule} from "../Oracles/Hedera/ChainlinkResolutionMo
 import {FTSOResolutionModule} from "../Oracles/Flare/FTSOResolutionModule.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
 import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
-import {IHederaTokenService} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/IHederaTokenService.sol";
 import {console} from "forge-std/src/console.sol";
 
 /**
- * @title DynamicaFactory
- * @dev Factory contract for deploying Dynamica prediction market makers using minimal proxy pattern
- * @notice This contract creates gas-efficient clones of the Dynamica implementation
+ * @title DynamicaFactory v2
+ * @dev Factory contract for deploying Dynamica v2 prediction market makers using minimal proxy pattern
+ * @notice This contract creates gas-efficient clones of the Dynamica v2 implementation.
+ *         Supports perpetual markets with continuous trading and automatic epoch transitions.
  */
 contract DynamicaFactory is Ownable {
+    
+    // ============ EVENTS ============
+    
     /// @notice Emitted when a new market maker is created
     /// @param creator Address of the market creator
     /// @param marketMaker Address of the created market maker contract
     /// @param collateralToken Address of the collateral token used
     event FactoryMarketMakerCreated(address indexed creator, address indexed marketMaker, address indexed collateralToken);
 
-    /// @notice Implementation contract for Dynamica market makers
+    // ============ STATE VARIABLES ============
+    
+    /// @notice Implementation contract for Dynamica v2 market makers
     address public immutable implementationMarketMaker;
+    
     /// @notice Implementation contract for Chainlink resolution modules
     address public immutable implementationResolutionModuleChainlink;
+    
     /// @notice Implementation contract for FTSO resolution modules
     address public immutable implementationResolutionModuleFTSO;
+    
     /// @notice Maximum fee that can be set (100% = 10,000 basis points)
     uint64 public constant FEE_RANGE = 10_000;
+    
     /// @notice Array of all created market maker addresses
     address[] public marketMakers;
+    
     /// @notice Address of the oracle coordinator that manages market resolution
     address public oracleCoordinator;
+    
     /// @notice Address of the FTSO V2 contract for Flare network
     address public immutable ftsoV2Address;
+    
     /// @notice Mapping from market maker address to its creator
     mapping(address => address) public marketMakerCreators;
+    
     /// @notice Mapping from creator address to array of their created market makers
     mapping(address => address[]) public creatorMarketMakers;
 
+    // ============ CONSTRUCTOR ============
+    
     /**
      * @notice Initializes the factory with implementation contracts
-     * @param _implementationMarketMaker Address of the Dynamica implementation
+     * @param _implementationMarketMaker Address of the Dynamica v2 implementation
      * @param _implementationResolutionModuleChainlink Address of Chainlink resolution module implementation
      * @param _implementationResolutionModuleFTSO Address of FTSO resolution module implementation
      * @param _ftsoV2Address Address of the FTSO V2 contract
@@ -71,15 +86,21 @@ contract DynamicaFactory is Ownable {
     ) Ownable(_owner) {
         require(_implementationMarketMaker != address(0), "Invalid implementation");
         require(
-            _implementationResolutionModuleChainlink != address(0), "Invalid implementation resolution module chainlink"
+            _implementationResolutionModuleChainlink != address(0), 
+            "Invalid implementation resolution module chainlink"
         );
-        require(_implementationResolutionModuleFTSO != address(0), "Invalid implementation resolution module ftso");
+        require(_implementationResolutionModuleFTSO != address(0), 
+            "Invalid implementation resolution module ftso");
+        require(_ftsoV2Address != address(0), "Invalid FTSO V2 address");
+        
         implementationMarketMaker = _implementationMarketMaker;
         implementationResolutionModuleChainlink = _implementationResolutionModuleChainlink;
         implementationResolutionModuleFTSO = _implementationResolutionModuleFTSO;
         ftsoV2Address = _ftsoV2Address;
     }
 
+    // ============ ADMIN FUNCTIONS ============
+    
     /**
      * @notice Sets the oracle coordinator address (owner only)
      * @param _oracleCoordinator Address of the oracle coordinator
@@ -89,11 +110,12 @@ contract DynamicaFactory is Ownable {
         oracleCoordinator = _oracleCoordinator;
     }
 
+    // ============ PUBLIC FUNCTIONS ============
+    
     /**
-     * @notice Creates a new Dynamica market maker with specified configuration
+     * @notice Creates a new Dynamica v2 market maker with specified configuration
      * @param config Configuration for the market maker
      * @param resolutionConfig Configuration for the resolution module
-     * @param tokens Array of HederaToken structs for each outcome
      * @return cloneAddress Address of the created market maker clone
      * @dev This function:
      * 1. Validates all input parameters
@@ -106,33 +128,33 @@ contract DynamicaFactory is Ownable {
      */
     function createMarketMaker(
         IDynamica.Config memory config,
-        IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig,
-        IHederaTokenService.HederaToken[] memory tokens
+        IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig
     ) external payable returns (address payable cloneAddress) {
-        require(config.collateralToken != address(0), "Invalid token");
-        require(config.owner != address(0), "Invalid owner");
-        require(config.fee < FEE_RANGE, "Fee too high");
-        require(oracleCoordinator != address(0), "Invalid oracle coordinator");
-        require(config.startFunding != 0, "Funding change must be non-zero");
-        require(config.outcomeSlotCount > 1, "Must have more than one outcome slot");
-        require(config.outcomeTokenAmounts != 0, "Outcome token amounts must be non-zero");
-        require(bytes(config.question).length > 0, "Question cannot be empty");
-        require(config.alpha > 0, "Alpha must be positive");
-        require(config.expLimit > 0, "Exp limit must be positive");
-        require(resolutionConfig.expirationTime > block.timestamp + 7 days, "Expitation time must be in the future");
-        require(config.decimals >= 8, "Decimals must be positive");
-        require(tokens.length == config.outcomeSlotCount, "Tokens length must match outcomeSlotCount");
-        for (uint256 i = 0; i < tokens.length; i++) {
-            tokens[i].expiry.autoRenewAccount = config.owner;
-            tokens[i].expiry.autoRenewPeriod = 5184000;
-        }
+        // Validate market configuration
+        _validateMarketConfig(config);
+        
+        // Validate resolution configuration
+        _validateResolutionConfig(resolutionConfig);
+        
+        // Validate oracle coordinator is set
+        require(oracleCoordinator != address(0), "Oracle coordinator not set");
+        
+        // Transfer collateral tokens from creator to factory
         require(
             IERC20(config.collateralToken).transferFrom(msg.sender, address(this), config.startFunding),
             "Transfer failed"
         );
+        
+        // Create minimal proxy clone
         cloneAddress = payable(Clones.clone(implementationMarketMaker));
+        
+        // Approve collateral tokens for the new market maker
         IERC20(config.collateralToken).approve(cloneAddress, config.startFunding);
+        
+        // Create and initialize resolution module
         address resolutionModule = _createAndInitializeResolutionModule(resolutionConfig.resolutionModuleType);
+        
+        // Register market with resolution manager
         _registerMarketWithResolutionManager(
             config.question,
             cloneAddress,
@@ -142,11 +164,16 @@ contract DynamicaFactory is Ownable {
             resolutionConfig.resolutionModuleType,
             resolutionConfig.resolutionData
         );
+        
+        // Set oracle and initialize market maker
         config.oracle = oracleCoordinator;
-        Dynamica(payable(cloneAddress)).initialize{value: msg.value}(config, tokens);
+        Dynamica(payable(cloneAddress)).initialize{value: msg.value}(config);
+        
+        // Record creation for tracking
         marketMakers.push(cloneAddress);
         marketMakerCreators[cloneAddress] = msg.sender;
         creatorMarketMakers[msg.sender].push(cloneAddress);
+        
         emit FactoryMarketMakerCreated(msg.sender, cloneAddress, config.collateralToken);
     }
 
@@ -191,6 +218,44 @@ contract DynamicaFactory is Ownable {
      */
     function isMarketMaker(address marketMaker) external view returns (bool) {
         return marketMakerCreators[marketMaker] != address(0);
+    }
+
+    // ============ INTERNAL FUNCTIONS ============
+    
+    /**
+     * @notice Validates market configuration parameters
+     * @param config The market configuration to validate
+     * @dev Reverts if any parameter is invalid
+     */
+    function _validateMarketConfig(IDynamica.Config memory config) internal pure {
+        require(config.collateralToken != address(0), "Invalid collateral token");
+        require(config.owner != address(0), "Invalid owner");
+        require(config.fee < FEE_RANGE, "Fee too high");
+        require(config.startFunding > 0, "Funding must be positive");
+        require(config.outcomeSlotCount > 1, "Must have more than one outcome");
+        require(config.outcomeTokenAmounts > 0, "Outcome token amounts must be positive");
+        require(bytes(config.question).length > 0, "Question cannot be empty");
+        require(config.alpha > 0, "Alpha must be positive");
+        require(config.expLimit > 0, "Exp limit must be positive");
+        require(config.decimals >= 8, "Decimals must be at least 8");
+        require(config.gamma > 0 && config.gamma <= FEE_RANGE, "Invalid gamma value");
+    }
+    
+    /**
+     * @notice Validates resolution configuration parameters
+     * @param resolutionConfig The resolution configuration to validate
+     * @dev Reverts if any parameter is invalid
+     */
+    function _validateResolutionConfig(IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig) internal view {
+        require(
+            resolutionConfig.expirationTime > block.timestamp + 7 days, 
+            "Expiration time must be at least 7 days in the future"
+        );
+        require(
+            resolutionConfig.resolutionModuleType == IMarketResolutionModule.ResolutionModule.CHAINLINK ||
+            resolutionConfig.resolutionModuleType == IMarketResolutionModule.ResolutionModule.FTSO,
+            "Invalid resolution module type"
+        );
     }
 
     /**
