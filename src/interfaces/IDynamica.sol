@@ -15,7 +15,7 @@ interface IDynamica {
     /// @param initialFunding The initial funding amount
     /// @param question The market question
     /// @param perOutcomeAmount The amount per outcome
-    event MarketInitialized(uint256 indexed initialFunding, string indexed question, int64 perOutcomeAmount);
+    event MarketInitialized(uint256 indexed initialFunding, string indexed question, uint256 perOutcomeAmount);
 
     /// @notice Emitted when a new outcome token is created
     /// @param tokenAddress The address of the created token
@@ -29,7 +29,7 @@ interface IDynamica {
     /// @param marketFees The market fees charged
     event OutcomeTokenTrade(
         address indexed trader,
-        int64[] outcomeTokenAmounts,
+        int256[] outcomeTokenAmounts,
         int256 outcomeTokenNetCost,
         uint256 marketFees
     );
@@ -64,15 +64,15 @@ interface IDynamica {
 
     /// @notice Emitted when tokens are minted
     /// @param to The address receiving tokens
-    /// @param token The token address
+    /// @param tokenId The token id
     /// @param amount The amount minted
-    event TokenMinted(address indexed to, address indexed token, int64 amount);
+    event TokenMinted(address indexed to, uint256 indexed tokenId, uint256 amount);
 
     /// @notice Emitted when tokens are burned
     /// @param from The address burning tokens
-    /// @param token The token address
+    /// @param tokenId The token id
     /// @param amount The amount burned
-    event TokenBurned(address indexed from, address indexed token, int64 amount);
+    event TokenBurned(address indexed from, uint256 indexed tokenId, uint256 amount);
 
     // ============ Errors ============
 
@@ -139,7 +139,7 @@ interface IDynamica {
         string question; ///< Market question
         uint256 outcomeSlotCount; ///< Number of outcomes
         uint256 startFunding; ///< Initial funding
-        int64 outcomeTokenAmounts; ///< Amount per outcome
+        uint256 outcomeTokenAmounts; ///< Amount per outcome
         uint64 fee; ///< Fee in basis points
         int256 alpha; ///< Alpha parameter for LMSR
         int256 expLimit; ///< Exponential limit
@@ -150,7 +150,7 @@ interface IDynamica {
     // ============ Constants ============
 
     /// @notice Returns the maximum fee range
-    function FEE_RANGE() external pure returns (uint64);
+    function RANGE() external pure returns (uint32);
 
     // ============ State Variables ============
 
@@ -177,7 +177,7 @@ interface IDynamica {
 
     /// @notice Makes a prediction by buying or selling outcome tokens
     /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-    function makePrediction(int64[] calldata deltaOutcomeAmounts_) external;
+    function makePrediction(int256[] calldata deltaOutcomeAmounts_) external;
 
     /// @notice Closes the market by resolving the condition
     /// @param payouts Array of payout numerators for each outcome
@@ -191,7 +191,7 @@ interface IDynamica {
     /// @notice Calculates the net cost for a trade
     /// @param outcomeTokenAmounts Array of token amount changes
     /// @return netCost The net cost of the trade
-    function calcNetCost(int64[] memory outcomeTokenAmounts) external view returns (int256);
+    function calcNetCost(int256[] memory outcomeTokenAmounts) external view returns (int256);
 
     /// @notice Changes the fee rate
     /// @param _fee The new fee rate
