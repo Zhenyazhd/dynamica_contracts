@@ -73,7 +73,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
     uint256 public feeReceived;
     
     /// @notice Array of supplies for each outcome token
-    int256[] public outcomeTokenSupplies;
+    uint256[] public outcomeTokenSupplies;
     
     // Epoch Management
     /// @notice Duration of each epoch in seconds
@@ -170,7 +170,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
         
         // Initialize arrays for market state
         payoutNumerators = new uint256[](_outcomeSlotCount);
-        outcomeTokenSupplies = new int256[](_outcomeSlotCount);
+        outcomeTokenSupplies = new uint256[](_outcomeSlotCount);
         
         // Calculate epoch duration based on remaining time
         epochDuration = (expirationTime - uint32(block.timestamp)) / EPOCH_NUMBER;
@@ -198,7 +198,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
                 _outcomeTokenAmounts,
                 ""
             );
-            outcomeTokenSupplies[i] = int256(_outcomeTokenAmounts);
+            outcomeTokenSupplies[i] = _outcomeTokenAmounts;
         }
         emit MarketInitialized(msg.value, _question, _outcomeTokenAmounts);
     }
@@ -430,12 +430,12 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             if (deltaOutcomeAmounts_[i] > 0) {
                 // Mint tokens for buying
-                outcomeTokenSupplies[i] += deltaOutcomeAmounts_[i];
+                outcomeTokenSupplies[i] += uint256(deltaOutcomeAmounts_[i]);
                 epochData[currentEpochNumber].outcomeTokenAmounts[i] += uint256(deltaOutcomeAmounts_[i]);
                 _mintToken(msg.sender, uint256(deltaOutcomeAmounts_[i]), shareId(currentEpochNumber, i));
             } else if (deltaOutcomeAmounts_[i] < 0) {
                 // Burn tokens for selling
-                outcomeTokenSupplies[i] += deltaOutcomeAmounts_[i];
+                outcomeTokenSupplies[i] -= uint256(-deltaOutcomeAmounts_[i]);
                 epochData[currentEpochNumber].outcomeTokenAmounts[i] -= uint256(-deltaOutcomeAmounts_[i]);
                 _burnToken(msg.sender, uint256(-deltaOutcomeAmounts_[i]), shareId(currentEpochNumber, i));
             }

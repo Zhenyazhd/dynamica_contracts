@@ -157,7 +157,7 @@ interface IDynamica {
     /// @notice Returns the payout numerator for an outcome
     function payoutNumerators(uint256) external view returns (uint256);
     /// @notice Returns the supply for an outcome token
-    function outcomeTokenSupplies(uint256) external view returns (int256);
+    function outcomeTokenSupplies(uint256) external view returns (uint256);
     /// @notice Returns the payout denominator
     function payoutDenominator() external view returns (uint256);
     /// @notice Returns the collateral token address

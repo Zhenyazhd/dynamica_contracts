@@ -103,7 +103,7 @@ contract Dynamica is MarketMaker {
         // Convert current supplies to fixed-point format
         SD59x18[] memory qWad = new SD59x18[](n);
         for (uint256 i = 0; i < n; i++) {
-            int256 qi = outcomeTokenSupplies[i];
+            int256 qi = int256(outcomeTokenSupplies[i]);
             qWad[i] = sd(qi * UNIT_DEC);
         }
         
@@ -154,7 +154,7 @@ contract Dynamica is MarketMaker {
         SD59x18[] memory qNewSd = new SD59x18[](n);
         
         for (uint256 i = 0; i < n; i++) {
-            int256 currentSupply = outcomeTokenSupplies[i];
+            int256 currentSupply = int256(outcomeTokenSupplies[i]);
             qNew[i] = currentSupply + deltaOutcomeAmounts[i];
             qNewSd[i] = sd(qNew[i] * UNIT_DEC);
             balancesSd[i] = sd(currentSupply * UNIT_DEC);
