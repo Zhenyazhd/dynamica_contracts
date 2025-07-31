@@ -20,6 +20,9 @@ import {HederaResponseCodes} from "@hashgraph/hedera-smart-contracts/contracts/s
 import {KeyHelper} from "@hashgraph/hedera-smart-contracts/contracts/system-contracts/hedera-token-service/KeyHelper.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
+
 import "forge-std/src/console.sol";
 import "forge-std/src/Test.sol";
 /**
@@ -38,6 +41,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     
     /// @notice Unit decimal for calculations
     int256 public constant UNIT_DEC = 1e18;
+    SD59x18 public alpha;
 
     uint32 public epochDuration = 10 days;
     uint32 public periodDuration = 1 days;
@@ -59,7 +63,11 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         uint256[MAX_SLOT_COUNT] basePrice;
         uint256[MAX_SLOT_COUNT] payoutNumerators;
         int256[MAX_SLOT_COUNT] outcomeTokenSupplies; 
+        int64[MAX_SLOT_COUNT] q_base;
+        int256 c_base; // вообще всегда будет 0 по факту 
     }
+
+    mapping(address => int256[MAX_SLOT_COUNT]) public c_user; // epoch
 
     struct PeriodData {
         uint32 epochNumber;
@@ -264,11 +272,18 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             }
         }
 
+        SD59x18[] memory q_sd = new SD59x18[](_outcomeSlotCount);
+        for(uint256 i = 0; i < _outcomeSlotCount; i++){
+            q_sd[i] = sd(int256(epochData[currentEpochNumber].outcomeTokenSupplies[i]) * UNIT_DEC);
+        }
+
         uint256 totalPayout = 0;
         for (uint256 i = 0; i < _outcomeSlotCount; i++) {
             if (epochData[currentEpochNumber].payoutNumerators[i] != 0) {
                 revert PayoutNumeratorAlreadySet(i);
             }
+            SD59x18 x_i = ln(sd((int256(payouts[i])*UNIT_DEC)).div(sd(int256(payoutDenominator_)*UNIT_DEC)));
+            epochData[currentEpochNumber].q_base[i] = int64((getB_(q_sd).mul(x_i)).unwrap() / UNIT_DEC); // in outcomeTokenSupplies
             epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
             if(totalWeightedShares[i] != 0){
                 uint256 totalPayout_i = (totalWeightedShares[i] * payouts[i]) / payoutDenominator_;
@@ -278,6 +293,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
                 }
             }
         }
+        epochData[currentEpochNumber].c_base = costOf(epochData[currentEpochNumber].q_base);
+
         //_sendMarketsSharesToOwner(totalPayout);
         emit MarketResolved(msg.sender, payouts, epochData[currentEpochNumber].payoutDenominator);
     }
@@ -290,6 +307,26 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         uint256 totalPayout = 0;
         int64 shares = 0;
         uint256 l = epochDuration/periodDuration;
+
+        int64[MAX_SLOT_COUNT] memory delta;
+        for (uint j = 1; j <= l; j++) {
+            for (uint i = 0; i < outcomeSlotCount; i++) {
+                if( periodData[currentEpochNumber][j].stakesByPeriod[msg.sender].length > 0){
+                    delta[i] += int64(int256(periodData[currentEpochNumber][j].stakesByPeriod[msg.sender][i])* int32(gammaPow[j-1]) /int32(GAMMA_UNIT));
+                }
+            }
+        }
+
+        int256 new_reward;
+
+
+        for (uint i = 0; i < outcomeSlotCount; i++){
+            delta[i] += epochData[currentEpochNumber].q_base[i];
+        }
+        int256 c_user_ = costOf(delta);
+        new_reward = (c_user_ - epochData[currentEpochNumber].c_base);
+
+
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             shares = 0;
             for (uint256 j = 1; j <= l; j++) {
@@ -319,6 +356,11 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     function calcNetCost(int64[] memory outcomeTokenAmounts) public view virtual returns (int256) {
         // This function should be implemented by derived contracts
     }
+
+    function costOf(int64[MAX_SLOT_COUNT] memory q) public view virtual returns (int256 netCost) {
+        // TODO: implement
+    }
+
 
     /**
      * @notice Changes the fee rate
@@ -500,5 +542,15 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
      */
     function getHtsBalanceERC20(address token, address to) public view returns (uint256) {
         return IERC20(token).balanceOf(to);
+    }
+
+
+    function getB_(SD59x18[] memory q) public view returns (SD59x18 b) {
+        SD59x18 sum = sd(0);
+        for (uint256 i = 0; i < q.length; i++) {
+            sum = sum.add(q[i]);
+        }
+        b = sum.mul(alpha);
+        b = b == sd(0) ? sd(1) : b;
     }
 }

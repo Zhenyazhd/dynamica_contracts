@@ -46,8 +46,6 @@ contract Dynamica is MarketMaker {
 
     /// @notice Exponential limit to prevent overflow in calculations
     SD59x18 public EXP_LIMIT_DEC;
-    /// @notice Liquidity parameter that controls market depth and price sensitivity
-    SD59x18 public alpha;
 
     /**
      * @dev Constructor that disables initializers for implementation contract
@@ -73,7 +71,6 @@ contract Dynamica is MarketMaker {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
         fee = config.fee;
-        alpha = sd((config.alpha * UNIT_DEC) / 100);
         EXP_LIMIT_DEC = sd((config.expLimit * UNIT_DEC) / 100);
         gammaPow = new uint32[](PERIOD_NUMBER);
         gammaPow[0] = GAMMA_UNIT;
@@ -89,6 +86,7 @@ contract Dynamica is MarketMaker {
             config.decimals,
             tokens
         );
+        alpha = sd((config.alpha * UNIT_DEC) / 100);
         DEC_COLLATERAL = int256(10 ** collateralTokenDecimals);
         DEC_Q = int256(10 ** uint32(decimals));
         G = sd(UNIT_DEC); 
@@ -250,6 +248,22 @@ contract Dynamica is MarketMaker {
             }
         }
         return maxZ.sub(EXP_LIMIT_DEC);
+    }
+
+    function costOf(int64[MAX_SLOT_COUNT] memory q) public view override returns (int256 netCost) {
+        uint256 n = outcomeSlotCount;
+        SD59x18[] memory balancesSd = new SD59x18[](n);
+        SD59x18[] memory q_sd = new SD59x18[](n);
+        int256[] memory outcomeTokenAmounts_ = new int256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            outcomeTokenAmounts_[i] = epochData[currentEpochNumber].outcomeTokenSupplies[i];
+            q_sd[i] = sd(q[i] * UNIT_DEC);
+            balancesSd[i] = sd(outcomeTokenAmounts_[i] * UNIT_DEC);
+        }
+        SD59x18 b = getB( balancesSd);
+        (SD59x18 sum, SD59x18 off) = sumExp(q_sd, b);
+        SD59x18 c = b.mul(ln(sum).add(off));
+        netCost = (c.unwrap() * DEC_COLLATERAL / UNIT_DEC) / DEC_Q;
     }
 
 

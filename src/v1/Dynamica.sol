@@ -73,7 +73,7 @@ contract Dynamica is MarketMaker {
             config.decimals,
             tokens
         );
-        
+
         alpha = sd((config.alpha * UNIT_DEC) / 100);   
         EXP_LIMIT_DEC = sd((config.expLimit * UNIT_DEC) / 100);
         DEC_COLLATERAL = int256(10 ** collateralTokenDecimals);
@@ -114,6 +114,25 @@ contract Dynamica is MarketMaker {
         }
         SD59x18 p = exp(qWad[outcomeTokenIndex].sub(offset)).div(sum);
         priceWad = int256(p.unwrap());
+    }
+
+    function costOf(int64[] memory q) public view override returns (int256 netCost) {
+        uint256 n = outcomeSlotCount;
+        if (q.length != n) {
+            revert InvalidDeltaOutcomeAmountsLength(q.length, n);
+        }
+        SD59x18[] memory balancesSd = new SD59x18[](n);
+        SD59x18[] memory q_sd = new SD59x18[](n);
+        int256[] memory outcomeTokenAmounts_ = new int256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            outcomeTokenAmounts_[i] = outcomeTokenSupplies[i];
+            q_sd[i] = sd(q[i] * UNIT_DEC);
+            balancesSd[i] = sd(outcomeTokenAmounts_[i] * UNIT_DEC);
+        }
+        SD59x18 b = getB( balancesSd);
+        (SD59x18 sum, SD59x18 off) = sumExp(q_sd, b);
+        SD59x18 c = b.mul(ln(sum).add(off));
+        netCost = (c.unwrap() * DEC_COLLATERAL / UNIT_DEC) / DEC_Q;
     }
 
     /**
