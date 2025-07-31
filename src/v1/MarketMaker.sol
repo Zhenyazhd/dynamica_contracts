@@ -46,6 +46,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     int256 public constant UNIT_DEC = 1e18;
 
     // ============ STATE VARIABLES ============
+
+    int64[] public initialSupply;
     
     // Market Configuration
     /// @notice Address of the ERC20 collateral token
@@ -190,6 +192,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         outcomeTokenAddresses = new address[](_outcomeSlotCount);
         outcomeTokenSupplies = new int256[](_outcomeSlotCount);
         q_base = new int64[](_outcomeSlotCount);
+        initialSupply = new int64[](_outcomeSlotCount);
         
         // Calculate epoch duration based on remaining time
         epochDuration = (expirationTime - uint32(block.timestamp)) / EPOCH_NUMBER;
@@ -216,6 +219,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             (, tokenAddress) = this.createToken{value: valuePerToken}(tokens[i], _outcomeTokenAmounts);
             outcomeTokenAddresses[i] = tokenAddress;
             outcomeTokenSupplies[i] = int256(_outcomeTokenAmounts);
+            epochData[currentEpochNumber].outcomeTokenAmounts[i] = _outcomeTokenAmounts;
+            initialSupply[i] = _outcomeTokenAmounts;
             emit TokenCreated(tokenAddress, uint8(i));
         }
         emit MarketInitialized(msg.value, _question, _outcomeTokenAmounts);
@@ -316,10 +321,14 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
             }
         }
 
+        console.log("totalWeightedShares passed");
+
         SD59x18[] memory q_sd = new SD59x18[](_outcomeSlotCount);
         for(uint256 i = 0; i < _outcomeSlotCount; i++){
             q_sd[i] = sd(int256(outcomeTokenSupplies[i]) * UNIT_DEC);
         }
+        console.log("totalWeightedShares passed");
+
 
         for (uint256 i = 0; i < _outcomeSlotCount; i++) {
             SD59x18 x_i = ln(sd((int256(payouts[i])*UNIT_DEC)).div(sd(int256(payoutDenominator)*UNIT_DEC)));
@@ -337,27 +346,40 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         c_base = costOf(q_base);
         int64[] memory q_final = new int64[](outcomeSlotCount);
 
-        for (uint256 i = 0; i < outcomeSlotCount; i++){
-            q_final[i] += q_base[i];
-        }
-        console.log("q_final", q_final[0]);
-        console.log("q_final", q_final[1]);
-
         for (uint256 i = 1; i <= EPOCH_NUMBER; i++){
             for (uint256 j = 0; j < outcomeSlotCount; j++){
                 if(epochData[i].outcomeTokenAmounts.length > 0){
-                    q_final[j] += (epochData[i].outcomeTokenAmounts[j] * int32(gammaPow[i-1]) / int32(GAMMA_UNIT));
+                    if(i == 1){
+                        q_final[j] += ((epochData[i].outcomeTokenAmounts[j]-initialSupply[j]));
+                    }else{
+                        q_final[j] += (epochData[i].outcomeTokenAmounts[j]);
+                    }
                 }
             }
         }
+
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++){
+            q_final[i] = q_final[i];
+            q_final[i] += q_base[i];
+        }
+
         int256 c_final = costOf(q_final);
         int256 balance = int256(IERC20(collateralToken).balanceOf(address(this)));
         console.log("balance", balance);
         console.log("c_final",c_final);
         console.log("c_base",c_base);
         console.log("balance-c_final",balance-(c_final-c_base));
-  
-        //_sendMarketsSharesToOwner();
+//        20467510610764
+ //       20292154683418
+
+        /*int64[] memory delta = new int64[](outcomeSlotCount);
+        for (uint i = 0; i < outcomeSlotCount; i++){
+            delta[i] = initialSupply[i]+q_base[i];
+        }
+        int256 c_final_ = costOf(delta);
+        console.log("c_final_2",c_final_);  */   
+        _sendMarketsSharesToOwner((uint256(c_final-c_base)));
         emit MarketResolved(msg.sender, payouts, payoutDenominator);
     }
 
@@ -368,7 +390,6 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
     function redeemPayout() external marketResolved {
         uint256 shares;
         uint256 totalPayout = 0;
-        int64[][] memory q_user = new int64[][](EPOCH_NUMBER+1);
         c_user = new int256[](EPOCH_NUMBER);
         int256 new_reward;
         console.log("_________________________________________________________________");
@@ -377,12 +398,13 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
         for (uint j = 1; j <= EPOCH_NUMBER; j++) {
             for (uint i = 0; i < outcomeSlotCount; i++) {
                 if(stakesByEpoch[msg.sender][j].length > 0){
-                    delta[i] += int64(int256(stakesByEpoch[msg.sender][j][i])* int32(gammaPow[j-1]) /int32(GAMMA_UNIT));
+                    delta[i] += int64(int256(stakesByEpoch[msg.sender][j][i])* int32(gammaPow[j-1]));
                 }
             }
         }
 
         for (uint i = 0; i < outcomeSlotCount; i++){
+            delta[i] = delta[i] / int32(GAMMA_UNIT); 
             delta[i] += q_base[i];
         }
         int256 c_user_ = costOf(delta);

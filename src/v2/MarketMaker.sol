@@ -103,7 +103,7 @@ contract MarketMaker is Initializable, OwnableUpgradeable, HederaTokenService, I
 
     /// @notice Ensures the market is not yet resolved
     modifier epochNotResolved(uint256 epoch) {
-        if (epochData[epoch].payoutDenominator != 0) {
+        if (epochData[epoch].payoutDenominator != 0 || epochData[epoch].epochStart + epochDuration < block.timestamp) {
             revert MarketAlreadyResolved();
         }
         _;
