@@ -53,6 +53,8 @@ contract Dynamica is MarketMaker {
     {
         // Initialize base contract
         __Ownable_init(config.owner);
+        __ERC1155_init("");
+        __ERC1155Holder_init();
         
         // Set basic market parameters
         fee = config.fee;
