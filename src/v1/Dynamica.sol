@@ -256,3 +256,4 @@ contract Dynamica is MarketMaker {
         return maxZ.sub(EXP_LIMIT_DEC);
     }
 }
+

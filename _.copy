@@ -21,10 +21,9 @@ integrity = "03266dc49f8be85438f5f7ce654ac700346862e5f927d17038481cf526ff4d62"
 
 [[dependencies]]
 name = "flare-periphery"
-version = "0.1.34"
-url = "https://soldeer-revisions.s3.amazonaws.com/flare-periphery/0_1_34_11-07-2025_08:28:15_soldeer-flare-periphery.zip"
-checksum = "0e6d2db1038bb1a935c82ef283df61ddfd4a5d69c1dc11657e8774c0c680e0a6"
-integrity = "11de17f144c0528675acf880ce687b4aa8ea04c4084feef0d861cf9e1dec89f7"
+version = "latest"
+git = "https://github.com/flare-foundation/flare-foundry-periphery-package"
+rev = "80cdd9354ddcda17d3180c67c0347ba233435181"
 
 [[dependencies]]
 name = "forge-std"
@@ -34,15 +33,9 @@ checksum = "8d9e0a885fa8ee6429a4d344aeb6799119f6a94c7c4fe6f188df79b0dce294ba"
 integrity = "9e60fdba82bc374df80db7f2951faff6467b9091873004a3d314cf0c084b3c7d"
 
 [[dependencies]]
-name = "hashgraph-hedera-forking"
-version = "0.1.2"
-url = "https://soldeer-revisions.s3.amazonaws.com/hashgraph-hedera-forking/0_1_2_17-04-2025_16:53:04_hashgraph-hedera-forking-0.1.zip"
-checksum = "079fc1e6bf3cae1ad7bca16451902462151644aee8f9d83a99a20a5f6be882a7"
-integrity = "58266f3382f3cfb4ce7b052c6e722eb2b96498a6ac723fb2d27c81f645cf2835"
-
-[[dependencies]]
 name = "smartcontractkit-chainlink"
 version = "2.24.0"
 url = "https://soldeer-revisions.s3.amazonaws.com/smartcontractkit-chainlink/2_24_0_30-05-2025_05:36:05_smartcontractkit-chainlink-2.24.zip"
 checksum = "e864db91b14cd00d7c99672d1f6eb15daffcdc5c76239ff5d68d3503959099cf"
 integrity = "b4113af4847d2c2eead63c7e11e37648c6d8eb870ad037b01c36756f4345ad09"
+

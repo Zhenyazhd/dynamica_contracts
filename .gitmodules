@@ -3,4 +3,19 @@
 	url = https://github.com/hashgraph/hedera-forking
 [submodule "dependencies/hedera-smart-contracts"]
 	path = dependencies/hedera-smart-contracts
-	url = https://github.com/hashgraph/hedera-smart-contracts
+	url = https://github.com/@hashgraph/hedera-smart-contracts
+[submodule "dependencies/openzeppelin-contracts"]
+	path = dependencies/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "dependencies/openzeppelin-contracts-upgradeable"]
+	path = dependencies/openzeppelin-contracts-upgradeable
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts-upgradeable
+[submodule "dependencies/flare-foundry-periphery-package"]
+	path = dependencies/flare-foundry-periphery-package
+	url = https://github.com/flare-foundation/flare-foundry-periphery-package
+[submodule "dependencies/forge-std"]
+	path = dependencies/forge-std
+	url = https://github.com/foundry-rs/forge-std
+[submodule "dependencies/foundry-chainlink-toolkit"]
+	path = dependencies/foundry-chainlink-toolkit
+	url = https://github.com/smartcontractkit/foundry-chainlink-toolkit
