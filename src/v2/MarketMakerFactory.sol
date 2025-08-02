@@ -129,7 +129,7 @@ contract DynamicaFactory is Ownable {
     function createMarketMaker(
         IDynamica.Config memory config,
         IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig
-    ) external payable returns (address payable cloneAddress) {
+    ) external returns (address cloneAddress) {
         // Validate market configuration
         _validateMarketConfig(config);
         
@@ -146,7 +146,7 @@ contract DynamicaFactory is Ownable {
         );
         
         // Create minimal proxy clone
-        cloneAddress = payable(Clones.clone(implementationMarketMaker));
+        cloneAddress = Clones.clone(implementationMarketMaker);
         
         // Approve collateral tokens for the new market maker
         IERC20(config.collateralToken).approve(cloneAddress, config.startFunding);
@@ -160,14 +160,13 @@ contract DynamicaFactory is Ownable {
             cloneAddress,
             config.outcomeSlotCount,
             resolutionModule,
-            resolutionConfig.expirationTime,
             resolutionConfig.resolutionModuleType,
             resolutionConfig.resolutionData
         );
         
         // Set oracle and initialize market maker
         config.oracle = oracleCoordinator;
-        Dynamica(payable(cloneAddress)).initialize{value: msg.value}(config);
+        Dynamica(cloneAddress).initialize(config);
         
         // Record creation for tracking
         marketMakers.push(cloneAddress);
@@ -239,6 +238,8 @@ contract DynamicaFactory is Ownable {
         require(config.expLimit > 0, "Exp limit must be positive");
         require(config.decimals >= 8, "Decimals must be at least 8");
         require(config.gamma > 0 && config.gamma <= FEE_RANGE, "Invalid gamma value");
+        require(config.epochDuration > config.periodDuration, "Epoch duration must be greater than period duration");
+        require(config.periodDuration > 0, "Period duration must be greater than 0");
     }
     
     /**
@@ -247,10 +248,6 @@ contract DynamicaFactory is Ownable {
      * @dev Reverts if any parameter is invalid
      */
     function _validateResolutionConfig(IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig) internal view {
-        require(
-            resolutionConfig.expirationTime > block.timestamp + 7 days, 
-            "Expiration time must be at least 7 days in the future"
-        );
         require(
             resolutionConfig.resolutionModuleType == IMarketResolutionModule.ResolutionModule.CHAINLINK ||
             resolutionConfig.resolutionModuleType == IMarketResolutionModule.ResolutionModule.FTSO,
@@ -285,7 +282,6 @@ contract DynamicaFactory is Ownable {
      * @param marketMakerAddress Address of the market maker
      * @param outcomeSlotCount Number of possible outcomes
      * @param resolutionModule Address of the resolution module
-     * @param expirationTime Expiration time for the market
      * @param resolutionModuleType Type of resolution module
      * @param resolutionData Encoded resolution data for the module
      * @dev This function registers the market with the oracle coordinator for resolution tracking
@@ -295,7 +291,6 @@ contract DynamicaFactory is Ownable {
         address marketMakerAddress,
         uint256 outcomeSlotCount,
         address resolutionModule,
-        uint32 expirationTime,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
         bytes memory resolutionData
     ) private {
@@ -304,7 +299,6 @@ contract DynamicaFactory is Ownable {
             marketMakerAddress,
             outcomeSlotCount,
             resolutionModule,
-            expirationTime,
             resolutionModuleType,
             resolutionData
         );

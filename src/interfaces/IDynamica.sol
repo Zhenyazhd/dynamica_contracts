@@ -74,6 +74,22 @@ interface IDynamica {
     /// @param amount The amount burned
     event TokenBurned(address indexed from, uint256 indexed tokenId, uint256 amount);
 
+    /// @notice Emitted when the contract is exited
+    /// @param timestamp The time of the exit
+    /// @param amount The amount exited
+    event EmergencyExit(uint256 timestamp, address token, uint256 amount);
+
+    /// @notice Emitted when the epoch is resolved
+    /// @param resolver The address that resolved the epoch
+    /// @param payouts The payout numerators for each outcome
+    /// @param denominator The payout denominator
+    event EpochResolved(address indexed resolver, uint256[] payouts, uint256 denominator);
+
+    /// @notice Emitted when the expiration epoch is changed
+    /// @param newExpirationEpoch The new expiration epoch
+    /// @param timestamp The time of the change
+    event ExpirationEpochChanged(uint32 newExpirationEpoch, uint256 timestamp);
+
     // ============ Errors ============
 
     /// @notice Thrown if collateral token decimals are too high
@@ -127,6 +143,13 @@ interface IDynamica {
     error FailedToTransferToken();
     /// @notice Thrown if the return to owner transfer fails
     error NotEnoughCollateralToCoverPayouts(uint256 shortfall);
+    
+    error EpochFinishedButNotResolvedYet(uint32 epoch);
+
+    /// @notice Thrown if the market is expired
+    error MarketExpired();
+    /// @notice Thrown if the new expiration epoch is less than the current epoch
+    error NewExpirationEpochMustBeGreaterThanCurrentEpoch(uint32 newExpirationEpoch, uint32 currentEpoch);
 
     // ============ Structs ============
 
@@ -135,7 +158,7 @@ interface IDynamica {
         address owner; ///< Owner of the market
         address collateralToken; ///< Collateral token address
         address oracle; ///< Oracle address
-        int32 decimals; ///< Decimals for outcome tokens
+        uint8 decimals; ///< Decimals for outcome tokens
         string question; ///< Market question
         uint256 outcomeSlotCount; ///< Number of outcomes
         uint256 startFunding; ///< Initial funding
@@ -143,8 +166,37 @@ interface IDynamica {
         uint64 fee; ///< Fee in basis points
         int256 alpha; ///< Alpha parameter for LMSR
         int256 expLimit; ///< Exponential limit
-        uint32 expirationTime; ///< Expiration time
+        uint32 expirationEpoch; ///< Expiration time
         uint32 gamma; 
+        uint32 epochDuration;
+        uint32 periodDuration;
+    }
+
+  
+    /// @notice Structure to store epoch-specific data
+    struct EpochData {
+        /// @notice Start timestamp of the epoch
+        uint32 epochStart;
+        /// @notice Payout denominator for calculating final payouts
+        uint256 payoutDenominator;
+        /// @notice Funding for the epoch
+        uint256 funding;
+        /// @notice Array of base prices for each outcome
+        uint256[10] basePrice;
+        /// @notice Array of payout numerators for each outcome
+        uint256[10] payoutNumerators;
+        /// @notice Array of supplies for each outcome token
+        uint256[10] outcomeTokenSupplies; 
+    }
+
+    /// @notice Structure to store period-specific data
+    struct PeriodData {
+        /// @notice Epoch number this period belongs to
+        uint32 epochNumber;
+        /// @notice Start timestamp of the period
+        uint32 periodStart;
+        /// @notice Array of outcome token amounts for this period
+        uint256[10] outcomeTokenAmounts;
     }
 
     // ============ Constants ============
@@ -172,19 +224,23 @@ interface IDynamica {
     function oracleManager() external view returns (address);
     /// @notice Returns the number of outcome slots
     function outcomeSlotCount() external view returns (uint256);
+    /// @notice Returns the 
+    function checkEpoch() external view returns (bool);
+   
 
     // ============ External Functions ============
 
     /// @notice Makes a prediction by buying or selling outcome tokens
     /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-    function makePrediction(int256[] calldata deltaOutcomeAmounts_) external;
+    function makePrediction(int256[] memory deltaOutcomeAmounts_) external;
 
-    /// @notice Closes the market by resolving the condition
+
+    /// @notice Closes the epoch by resolving the condition
     /// @param payouts Array of payout numerators for each outcome
-    function closeMarket(uint256[] calldata payouts) external;
+    function closeEpoch(uint256[] calldata payouts) external returns (bool);
 
     /// @notice Redeems payout for resolved condition
-    function redeemPayout() external;
+    function redeemPayout(uint32 epoch) external;
 
     // ============ Public Functions ============
 

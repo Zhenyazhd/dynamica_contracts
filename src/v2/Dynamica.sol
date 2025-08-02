@@ -77,7 +77,6 @@ contract Dynamica is MarketMaker {
      */
     function initialize(IDynamica.Config calldata config)
         public
-        payable
         initializer
     {
         // Initialize base contract
@@ -101,15 +100,9 @@ contract Dynamica is MarketMaker {
         
         // Initialize gamma powers for time-weighted rewards
         _initializeGammaPowers(config.gamma);
-        
         // Initialize the market with basic parameters
         initializeMarket(
-            config.oracle,
-            config.question,
-            config.outcomeSlotCount,
-            config.startFunding,
-            config.outcomeTokenAmounts,
-            config.decimals
+            config
         );
         
         // Set decimal precision and global scaling parameter
@@ -202,7 +195,7 @@ contract Dynamica is MarketMaker {
         
         SD59x18 cOld = bOld.mul(ln(sumOld).add(offOld));
         SD59x18 cNew = bNew.mul(ln(sumNew).add(offNew));
-        
+
         // Calculate net cost difference
         netCost = (cNew.sub(cOld).unwrap() * DEC_COLLATERAL / UNIT_DEC) / DEC_Q;
     }
@@ -338,12 +331,4 @@ contract Dynamica is MarketMaker {
         }
         return maxZ.sub(EXP_LIMIT_DEC);
     }
-
-    // ============ FALLBACK FUNCTIONS ============
-    
-    /**
-     * @notice Allows the contract to receive ETH
-     * @dev Required for some operations that may send ETH to the contract
-     */
-    receive() external payable {}
 }
