@@ -244,16 +244,16 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
      * @param i Index of the outcome
      * @return The payout numerator
      */
-    function payoutNumerators(uint256 i) external view returns (uint256) {
-        return epochData[currentEpochNumber-1].payoutNumerators[i];
+    function payoutNumerators(uint256 epoch, uint256 i) external view returns (uint256) {
+        return epochData[epoch].payoutNumerators[i];
     }
 
     /**
      * @notice Returns the payout denominator for the previous epoch
      * @return The payout denominator
      */
-    function payoutDenominator() external view returns (uint256) {
-        return epochData[currentEpochNumber-1].payoutDenominator;
+    function payoutDenominator(uint256 epoch) external view returns (uint256) {
+        return epochData[epoch].payoutDenominator;
     }
 
     /**
@@ -261,8 +261,8 @@ contract MarketMaker is Initializable, OwnableUpgradeable, ERC1155Upgradeable, E
      * @param i Index of the outcome
      * @return The token supply
      */
-    function outcomeTokenSupplies(uint256 i) external view returns (uint256) {
-        return epochData[currentEpochNumber].outcomeTokenSupplies[i];
+    function outcomeTokenSupplies(uint256 epoch, uint256 i) external view returns (uint256) {
+        return epochData[epoch].outcomeTokenSupplies[i];
     }
 
     /**

@@ -4,7 +4,7 @@ pragma solidity ^0.8.25;
 import {AggregatorV3Interface} from
     "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
-import {Initializable} from "@openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
 /**
  * @title ChainlinkConfig

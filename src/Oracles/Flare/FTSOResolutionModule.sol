@@ -3,7 +3,7 @@ pragma solidity ^0.8.25;
 
 import {FtsoV2Interface} from "flare-periphery/src/coston2/FtsoV2Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
-import {Initializable} from "@openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
+import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
 // Структура для параметров FTSO
 struct FTSOConfig {

@@ -11,7 +11,7 @@ pragma solidity ^0.8.25;
 */
 
 import {IERC20} from "../interfaces/IERC20.sol";
-import {Clones} from "@openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {Clones} from "@openzeppelin-contracts/proxy/Clones.sol";
 import {Dynamica} from "./Dynamica.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {MarketMaker} from "./MarketMaker.sol";
@@ -19,7 +19,7 @@ import {MarketResolutionManager} from "../Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "../Oracles/Hedera/ChainlinkResolutionModule.sol";
 import {FTSOResolutionModule} from "../Oracles/Flare/FTSOResolutionModule.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
-import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {console} from "forge-std/src/console.sol";
 
 /**

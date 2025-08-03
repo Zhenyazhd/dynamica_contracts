@@ -207,11 +207,11 @@ interface IDynamica {
     // ============ State Variables ============
 
     /// @notice Returns the payout numerator for an outcome
-    function payoutNumerators(uint256) external view returns (uint256);
+    function payoutNumerators(uint256, uint256) external view returns (uint256);
     /// @notice Returns the supply for an outcome token
-    function outcomeTokenSupplies(uint256) external view returns (uint256);
+    function outcomeTokenSupplies(uint256, uint256) external view returns (uint256);
     /// @notice Returns the payout denominator
-    function payoutDenominator() external view returns (uint256);
+    function payoutDenominator(uint256) external view returns (uint256);
     /// @notice Returns the collateral token address
     function collateralToken() external view returns (address);
     /// @notice Returns the market question
