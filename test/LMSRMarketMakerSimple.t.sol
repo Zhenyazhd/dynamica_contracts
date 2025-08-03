@@ -2,16 +2,16 @@
 pragma solidity ^0.8.25;
 
 //import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
-import {IERC20} from "../../src/interfaces/IERC20.sol";
-import {MockToken} from "../MockToken.sol";
-import {Dynamica} from "../../src/v2/Dynamica.sol";
-import {IDynamica} from "../../src/interfaces/IDynamica.sol";
-import {DynamicaFactory} from "../../src/v2/MarketMakerFactory.sol";
-import {MarketResolutionManager} from "../../src/Oracles/MarketResolutionManager.sol";
+import {IERC20} from "../src/interfaces/IERC20.sol";
+import {MockToken} from "./MockToken.sol";
+import {Dynamica} from "../src/Dynamica.sol";
+import {IDynamica} from "../src/interfaces/IDynamica.sol";
+import {DynamicaFactory} from "../src/MarketMakerFactory.sol";
+import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule, ChainlinkConfig} from "../../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
-import {FTSOResolutionModule} from "../../src/Oracles/Flare/FTSOResolutionModule.sol";
-import {OracleSetUP} from "../MockOracles/OracleSetUP.t.sol";
-import {IMarketResolutionModule} from "../../src/interfaces/IMarketResolutionModule.sol";
+import {FTSOResolutionModule} from "../src/Oracles/Flare/FTSOResolutionModule.sol";
+import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
+import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
 import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {console} from "forge-std/src/console.sol";
 import {Test} from "forge-std/src/Test.sol";

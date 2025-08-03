@@ -10,9 +10,9 @@ pragma solidity ^0.8.25;
 ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
 */
 
-import {IERC20} from "../interfaces/IERC20.sol";
-import {IDynamica} from "../interfaces/IDynamica.sol";
-import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
+import {IDynamica} from "./interfaces/IDynamica.sol";
+import {IMarketResolutionModule} from "./interfaces/IMarketResolutionModule.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC1155Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";

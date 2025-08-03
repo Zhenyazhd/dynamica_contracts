@@ -12,8 +12,8 @@ pragma solidity ^0.8.25;
 
 import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {MarketMaker} from "./MarketMaker.sol";
-import {IDynamica} from "../interfaces/IDynamica.sol";
-import {IERC20} from "../interfaces/IERC20.sol";
+import {IDynamica} from "./interfaces/IDynamica.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 import "forge-std/src/console.sol";
 
 /**
