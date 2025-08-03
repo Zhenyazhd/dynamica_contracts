@@ -3,6 +3,8 @@ src = "src"
 out = "out"
 libs = ["dependencies"]
 ffi = true
+optimizer = true
+optimizer_runs = 200
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -24,13 +26,12 @@ remappings_location = "txt"
 recursive_deps = true
 
 [dependencies]
-forge-std = "1.9.7"
-flare-periphery = { version = "latest", git = "https://github.com/flare-foundation/flare-foundry-periphery-package", rev = "80cdd9354ddcda17d3180c67c0347ba233435181" }
-"@openzeppelin-contracts" = "5.4.0-rc.1"
-"@openzeppelin-contracts-upgradeable" = "5.4.0-rc.1"
+flare-periphery = "0.1.34"
+"@openzeppelin-contracts" = "5.4.0"
+"@openzeppelin-contracts-upgradeable" = "5.4.0"
+forge-std = "1.10.0"
 "@prb-math" = "4.1.0"
 smartcontractkit-chainlink = "2.24.0"
-hashgraph-hedera-forking = "0.1.2"
 
 [rpc_endpoints]
 hedera = "https://testnet.hashio.io/api"

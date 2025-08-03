@@ -20,7 +20,6 @@ interface IMarketResolutionModule {
         address resolutionModule;
         bytes resolutionData;
         bool isResolved;
-        uint32 expirationTime;
         ResolutionModule resolutionModuleType;
     }
 

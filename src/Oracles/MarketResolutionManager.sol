@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
 import {console} from "forge-std/src/console.sol";
@@ -42,8 +42,8 @@ contract MarketResolutionManager is Ownable  {
         _;
     }
 
-    modifier onlyWhenExpired(uint32 expirationTime) {
-        require(block.timestamp > expirationTime, "Market not expired");
+    modifier onlyWhenExpired(uint32 expirationEpoch) {
+        require(block.timestamp > expirationEpoch, "Market not expired");
         _;
     }
 
@@ -76,7 +76,6 @@ contract MarketResolutionManager is Ownable  {
         address marketMaker,
         uint256 outcomeSlotCount,
         address resolutionModule,
-        uint32 expirationTime,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
         bytes calldata resolutionData
     ) external onlyFactory {
@@ -88,7 +87,6 @@ contract MarketResolutionManager is Ownable  {
             resolutionModule,
             resolutionData,
             false, // isResolve
-            expirationTime,
             resolutionModuleType
         );
 
@@ -104,9 +102,9 @@ contract MarketResolutionManager is Ownable  {
     function resolveMarket(bytes32 questionId)
         external
         onlyOwner
-        onlyWhenExpired(marketConfigs[questionId].expirationTime)
-    {
+    {        
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
+        require(IDynamica(config.marketMaker).checkEpoch(), "Last epoch isn't finished yet");
 
         _validateMarketResolution(config);
 
@@ -114,15 +112,10 @@ contract MarketResolutionManager is Ownable  {
         uint256[] memory payouts = _getMarketPayouts(config);
 
         // Close the market with the calculated payouts
-        IDynamica(config.marketMaker).closeMarket(payouts);
-
-        // Mark the market as resolved
-        config.isResolved = true;
+        config.isResolved = IDynamica(config.marketMaker).closeEpoch(payouts);
 
         emit MarketResolved(questionId, payouts);
     }
-
-
 
     function getCurrentMarketData(bytes32 questionId)
         external

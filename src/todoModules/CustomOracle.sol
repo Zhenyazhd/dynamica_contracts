@@ -3,7 +3,7 @@ pragma solidity ^0.8.25;
 
 import {ContractRegistry} from "flare-periphery/src/coston2/ContractRegistry.sol";
 import {IWeb2Json} from "flare-periphery/src/coston2/IWeb2Json.sol";
-import {Ownable} from "@openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 
 // ============ Structs ============
 
