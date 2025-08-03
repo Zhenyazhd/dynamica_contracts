@@ -1,341 +1,189 @@
-# Dynamica - Prediction Market System
+# Dynamica v2 - Perpetual Prediction Markets
 
-## Current Stage 
+## Project Essence
 
-**Development Status: Active Research & Development**
+**Dynamica** is a platform for creating perpetual prediction markets built on blockchain. Markets offer the ability to predict the ratio of several continuous quantities and bet money on it. The project implements a modern market making system using the **Logarithmic Market Scoring Rule (LMSR)** algorithm, which ensures continuous trading and automatic price discovery.
 
-The current development phase focuses on implementing time-based reward reduction mechanisms to incentivize early and accurate predictions. The system is designed to decrease payouts over time periods, encouraging participants to make correct forecasts as early as possible.
+### Core Concepts:
 
-**Key Development Areas:**
-- **Reward Formula Revision**: Currently reviewing and optimizing the payout calculation formula for better incentive alignment
-- **V2 Architecture Migration**: Core logic is being migrated to v2 perpetual markets that will operate continuously without closure
-- **Epoch-Based System**: Implementing epoch-based mechanisms for dynamic reward distribution
+- **Perpetual Markets**: Markets operate continuously with automatic transitions between epochs
+- **LMSR Algorithm**: Uses logarithmic scoring function for price and liquidity determination
+- **Multi-Outcome Markets**: Support for up to 10 different outcomes in one market
+- **Time Weights**: Reward system considering trading participation time
+- **Cross-Chain Oracles**: Integration with Chainlink oracles
 
-**Important Notice:**
-⚠️ **This codebase is currently in active development and should not be used in production environments.**
-- Code has not been thoroughly optimized for gas efficiency
-- Security audits have not been completed
-- Comprehensive testing is still in progress
-- The system may contain experimental features and untested components
+## Main Features and Characteristics
 
-**Recommended Usage:**
-This version is intended for research, development, and testing purposes only. For production deployment, please wait for the completion of security audits and comprehensive testing.
+### 🎯 Key Capabilities
 
-## Overview
+1. **Continuous Trading**
+   - Automatic transitions between epochs and periods
+   - Continuous liquidity without waiting for market resolution
+   - Dynamic pricing based on current state
 
-Dynamica is a decentralized prediction market system built on blockchain. The system uses the LMSR (Logarithmic Market Scoring Rule) algorithm to provide liquidity and automatic price discovery.
+2. **Advanced Market Making**
+   - LMSR algorithm for efficient price discovery
+   - Automatic scaling to maintain liquidity
+   - Protection against manipulation through mathematical constraints
+
+3. **Time-based Weights and Incentives**
+   - Gamma power system to encourage early predictions
+   - Decreasing multipliers for later periods
+   - Fair distribution of rewards
+
+4. **Modular Oracle Architecture**
+   - Chainlink support for Hedera
+   - FTSO integration for Flare Network
+   - Extensible system for adding new oracles
+
+5. **Gas Efficiency**
+   - Use of minimal proxies (EIP-1167)
+   - Optimized mathematical computations
+   - Batch processing of operations
+
+### 🔧 Technical Features
+
+- **Smart Contracts**: Written in Solidity 0.8.25
+- **Mathematical Library**: PRB Math for precise calculations
+- **Token Standards**: ERC-1155 for outcome tokens, ERC-20 for collateral
+- **Security**: OpenZeppelin contracts and upgradeable proxies
+- **Testing**: Complete test suite with Foundry
+
+### 📊 Market Structure
+
+- **Epochs**: Main time periods (configurable)
+- **Periods**: Epoch subdivisions for time weights
+- **Outcomes**: Up to 10 possible event results
+- **Collateral**: Any ERC-20 token for trading
 
 ## System Architecture
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   DynamicaFactory │    │ MarketResolutionManager │    │   ResolutionModules   │
-│                 │    │                  │    │                 │
-│ - Creates markets│◄──►│ - Manages        │◄──►│ - Chainlink     │
-│ - Manages       │    │   resolution     │    │ - FTSO          │
-│   proxies       │    │ - Registers      │    │ - FDC           │
-└─────────────────┘    │   markets        │    └─────────────────┘
-         │              └──────────────────┘
-         │                       │
-         ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐
-│   Dynamica      │    │   MarketMaker    │
-│   (LMSR)        │    │   (Base)         │
-│                 │    │                  │
-│ - Price discovery│    │ - Base logic     │
-│ - Calculations  │    │ - State          │
-│ - Trading       │    │   management     │
-└─────────────────┘    └──────────────────┘
-```
+### Main Contracts:
 
-## Contracts and Their Purpose
+1. **DynamicaFactory** - Factory for creating new markets
+2. **Dynamica** - Main market maker contract with LMSR
+3. **MarketMaker** - Base class with common logic
+4. **MarketResolutionManager** - Market resolution management
+5. **Resolution Modules** - Modules for various oracles
 
-### 1. MarketMaker.sol
-**Base contract for prediction markets**
-- Manages market state (tokens, balances, payouts)
-- Processes trading operations
-- Manages market resolution and payouts
-- Contains base logic for all market types
+### Workflow:
 
-### 2. Dynamica.sol
-**LMSR (Logarithmic Market Scoring Rule) implementation**
-- Extends MarketMaker with LMSR algorithm
-- Provides automatic price discovery
-- Uses fixed-point arithmetic with 18 decimal places
-- Prevents arbitrage opportunities
+1. Market creation through factory
+2. Initialization with initial funding
+3. Continuous trading throughout epochs
+4. Automatic resolution through oracles
+5. Reward distribution to participants
 
-### 3. DynamicaFactory.sol
-**Factory for creating markets**
-- Creates minimal proxy clones for gas efficiency
-- Manages market registration
-- Supports various resolution module types
-- Handles token transfers and approvals
+## Smart Contract Functions
 
-### 4. MarketResolutionManager.sol
-**Market resolution manager**
-- Coordinates market resolution through various modules
-- Registers markets with specific resolution modules
-- Manages market resolution state
+### DynamicaFactory
 
-### 5. Resolution Modules
-**Modules for market resolution**
+#### Main Functions:
+- `createMarketMaker()` - Create new market
+- `setOracleCoordinator()` - Set oracle coordinator
+- `getAllMarketMakers()` - Get all created markets
+- `getMarketMakersByCreator()` - Markets by specific creator
 
-#### ChainlinkResolutionModule.sol
-- Uses Chainlink oracles to fetch data
-- Supports multiple price feeds
-- Validates data freshness
+#### Events:
+- `FactoryMarketMakerCreated` - New market created
 
-#### FTSOResolutionModule.sol
-- Uses FTSO (Flare Time Series Oracle) for Flare network
-- Fetches price data and other metrics
+### Dynamica (Main Contract)
 
-## Contract Interactions
+#### Initialization and Setup:
+- `initialize()` - Initialize contract with parameters
+- `initializeMarket()` - Setup initial market state
 
-### Market Creation
-1. **DynamicaFactory** receives market configuration
-2. Creates minimal proxy clone of **Dynamica**
-3. Creates corresponding **ResolutionModule**
-4. Registers market in **MarketResolutionManager**
-5. Initializes **Dynamica** with initial funding
+#### Trading Functions:
+- `makePrediction()` - Place prediction/trade
+- `calcNetCost()` - Calculate trade cost
+- `calcMarginalPrice()` - Calculate marginal price for outcome
 
-### Trading
-1. User calls `makePrediction()` in **Dynamica**
-2. **Dynamica** calculates cost through LMSR
-3. **MarketMaker** processes payments and updates state
-4. `OutcomeTokenTrade` event is emitted
+#### Epoch Management:
+- `closeEpoch()` - Close epoch and calculate payouts
+- `redeemPayout()` - Get epoch payouts
+- `updateEpochAndPeriod()` - Update time periods
 
-### Market Resolution
-1. **MarketResolutionManager** calls corresponding **ResolutionModule**
-2. **ResolutionModule** fetches data from oracles
-3. **MarketResolutionManager** calls `closeMarket()` in **Dynamica**
-4. **MarketMaker** sets payout ratios
-5. Users can redeem payouts via `redeemPayout()`
+#### Administrative Functions:
+- `changeFee()` - Change fee
+- `withdrawFee()` - Withdraw collected fees
+- `emergencyExit()` - Emergency exit
 
-## Events
+#### Events:
+- `MarketInitialized` - Market initialized
+- `OutcomeTokenTrade` - Trade executed
+- `EpochResolved` - Epoch resolved
+- `PayoutRedemption` - Payout received
+- `MarketScaled` - Market scaled
 
-### MarketMaker Events
-```solidity
-// Events are defined in IDynamica interface
-event MarketMakerCreated(uint256 initialFunding);
-event startFunding(uint256 startFunding, uint256 outcomeTokenAmounts);
-event FeeChanged(uint64 newFee);
-event FeeWithdrawal(uint256 fees);
-event OutcomeTokenTrade(
-    address indexed trader,
-    int256[] outcomeTokenAmounts,
-    int256 outcomeTokenNetCost,
-    uint256 marketFees
-);
-event ConditionPreparation(
-    address indexed oracle,
-    string indexed question,
-    uint256 outcomeSlotCount
-);
-event PayoutRedemption(
-    address indexed redeemer,
-    IERC20 indexed collateralToken,
-    bytes32 indexed parentCollectionId,
-    bytes32 conditionId,
-    uint256[] indexSets,
-    uint256 payout
-);
-event SendMarketsSharesToOwner(uint256 returnToOwner);
-```
+### MarketMaker (Base Class)
 
-### DynamicaFactory Events
-```solidity
-event MarketMakerCreated(
-    address indexed creator,
-    address indexed marketMaker,
-    address indexed collateralToken
-);
-```
+#### Additional Functions:
+- `checkEpoch()` - Check epoch status
+- `payoutNumerators()` - Get payout numerators
+- `outcomeTokenSupplies()` - Get token supplies
+- `changeExpirationEpoch()` - Change expiration time
 
-### MarketResolutionManager Events
-```solidity
-event MarketRegistered(
-    bytes32 indexed questionId, 
-    address indexed marketMaker, 
-    address indexed resolutionModule
-);
-event MarketResolved(bytes32 indexed questionId, uint256[] payouts);
-```
-
-## Function and Variable Descriptions
-
-### MarketMaker.sol
-
-#### Constants
-- `FEE_RANGE` (uint64): Maximum fee (100% = 10,000 basis points)
-
-#### State Variables
-- `payoutNumerators[]` (uint256[]): Payout numerators for each outcome
-- `payoutDenominator` (uint256): Denominator for payout calculation
-- `collateralToken` (IERC20): Collateral token for trading
-- `question` (string): Question that the market resolves
-- `fee` (uint64): Fee rate in basis points
-- `funding` (uint256): Total market funding
-- `feeReceived` (uint256): Total fees received
-- `outcomeTokenAmounts[]` (uint256[]): Outcome token amounts in pool
-- `usersOutcomes[]` (uint256[]): Total user outcome tokens for each outcome
-- `oracleManager` (address): Oracle manager address
-- `userShares` (mapping): Mapping of users to their shares
-- `outcomeSlotCount` (uint256): Number of possible outcomes
-
-#### Main Functions
-- `initializeMarket()`: Initializes market with funding
-- `makePrediction()`: Makes prediction (buy/sell outcome tokens)
-- `closeMarket()`: Closes market with payout ratios
-- `redeemPayout()`: Redeems payouts for resolved market
-- `calcNetCost()`: Calculates net cost of trade
-- `changeFee()`: Changes fee rate
-- `withdrawFee()`: Withdraws accumulated fees
-
-### Dynamica.sol
-
-#### Constants
-- `UNIT_DEC` (int256): Decimal precision (1e18)
-
-#### State Variables
-- `EXP_LIMIT_DEC` (SD59x18): Exponential limit to prevent overflow
-- `alpha` (SD59x18): Liquidity parameter controlling market depth
-
-#### Main Functions
-- `initialize()`: Initializes Dynamica with configuration
-- `calcMarginalPrice()`: Calculates current marginal price for outcome
-- `calcNetCost()`: Calculates net cost of trade through LMSR
-- `_marginalPriceFromMemory()`: Calculates price from given state
-- `getB()`: Calculates liquidity parameter b
-- `sumExp()`: Computes sum of exponentials with numerical stability
-
-### DynamicaFactory.sol
-
-#### State Variables
-- `implementationMarketMaker` (address): Dynamica implementation contract
-- `implementationResolutionModuleChainlink` (address): Chainlink module implementation
-- `implementationResolutionModuleFTSO` (address): FTSO module implementation
-- `marketMakers[]` (address[]): Array of all created markets
-- `oracleCoordinator` (address): Oracle coordinator
-- `ftsoV2Address` (address): FTSO V2 contract address
-- `marketMakerCreators` (mapping): Mapping of market creators
-- `creatorMarketMakers` (mapping): Mapping of creators to their markets
-
-#### Main Functions
-- `createMarketMaker()`: Creates new Dynamica market
-- `setOracleCoordinator()`: Sets oracle coordinator
-- `_createAndInitializeResolutionModule()`: Creates and initializes resolution module
-- `_registerMarketWithResolutionManager()`: Registers market in resolution manager
-
-### MarketResolutionManager.sol
-
-#### State Variables
-- `factory` (address): Factory address
-- `marketConfigs` (mapping): Market configurations
-
-#### Main Functions
-- `registerMarket()`: Registers new market
-- `resolveMarket()`: Resolves market through corresponding module
-
-### Resolution Modules
-
-#### ChainlinkResolutionModule.sol
-- `resolveMarket()`: Resolves market using Chainlink oracles
-- `_validateConfig()`: Validates configuration
-- `_fetchAndProcessPrices()`: Fetches and processes prices
-- `_normalizePayouts()`: Normalizes payouts
-- `_adjustPayoutPrecision()`: Adjusts payout precision
-
-#### FTSOResolutionModule.sol
-- `resolveMarket()`: Resolves market using FTSO
-
-## Modifiers
-
-### MarketMaker
-- `marketNotResolved`: Market not yet resolved
-- `marketResolved`: Market is resolved
-- `onlyOracleManager`: Only oracle manager
+#### Events:
+- `TokenMinted` - Tokens minted
+- `TokenBurned` - Tokens burned
+- `FeeChanged` - Fee changed
+- `FeeWithdrawal` - Fees withdrawn
+- `SendMarketsSharesToOwner` - Shares sent to owner
 
 ### MarketResolutionManager
-- `onlyFactory`: Only factory
+
+#### Management Functions:
+- `registerMarket()` - Register market with oracle
+- `resolveMarket()` - Resolve market through oracle
+- `getCurrentMarketData()` - Get market data
+
+#### Events:
+- `MarketRegistered` - Market registered
+- `MarketResolved` - Market resolved
 
 ### Resolution Modules
-- `onlyMarketResolutionManager`: Only market resolution manager
 
-## Data Structures
+#### ChainlinkResolutionModule (Hedera):
+- `resolveMarket()` - Resolve through Chainlink
+- `getCurrentMarketData()` - Get data
 
-### IDynamica.Config
-```solidity
-struct Config {
-    address owner;
-    address collateralToken;
-    address oracle;
-    string question;
-    uint256 outcomeSlotCount;
-    uint256 startFunding;
-    uint256 outcomeTokenAmounts;
-    uint64 fee;
-    uint256 alpha;
-    uint256 expLimit;
-}
-```
+#### FTSOResolutionModule (Flare):
+- `resolveMarket()` - Resolve through FTSO
+- `getCurrentMarketData()` - Get data
 
-### IMarketResolutionModule.MarketResolutionConfig
-```solidity
-struct MarketResolutionConfig {
-    address marketMaker;
-    uint256 outcomeSlotCount;
-    address resolutionModule;
-    bytes resolutionData;
-    bool isResolved;
-    ResolutionModule resolutionModuleType;
-}
-```
+## Mathematical Foundations
 
-### ChainlinkConfig
-```solidity
-struct ChainlinkConfig {
-    address[] priceFeedAddresses;
-    uint256[] staleness;
-    uint8[] decimals;
-}
-```
+### LMSR Algorithm:
+- **Cost Function**: C(q) = b * ln(Σ(exp(q_i/b)))
+- **Marginal Price**: p_i = exp(q_i/b) / Σ(exp(q_j/b))
+- **Liquidity**: b = α * Σ(q_i)
 
-## LMSR Algorithm
-
-LMSR uses the following formula for price discovery:
-
-```
-π_i = exp(q_i/b) / Σ(exp(q_j/b))
-```
-
-where:
-- `π_i` - price of outcome i
-- `q_i` - amount of outcome i tokens
-- `b = α * Σ(q_j)` - liquidity parameter
-- `α` - alpha parameter controlling market depth
-
-Cost function:
-```
-C(q) = b * ln(Σ exp(q_i/b))
-```
-
-Net cost of trade:
-```
-netCost = C(q_new) - C(q_old)
-```
+### Time Weights:
+- Gamma powers to encourage early predictions
+- Decreasing multipliers across periods
+- Fair reward distribution
 
 ## Security
 
-- All external calls are protected with checks
-- Fixed-point arithmetic prevents overflow
-- Exponential limits prevent overflow
-- Access modifiers protect critical functions
-- Input validation in all functions
+- Overflow checks in mathematical operations
+- Input parameter validation
+- Protection against manipulation through mathematical constraints
+- Emergency functions for owners
+- Upgradeable contracts for bug fixes
 
-## Gas Optimization
+## Deployment and Usage
 
-- Use of minimal proxy clones for gas efficiency
-- Optimized algorithms for numerical computations
-- Efficient state management
-- Use of events for indexing
+### Requirements:
+- Foundry for compilation and testing
+- Solidity 0.8.25+ support
+- Access to oracles (Chainlink, FTSO)
+
+### Supported Networks:
+- **Hedera**: Through Chainlink oracles
+- **Flare**: Through FTSO V2
+- **Other EVM-compatible**: Through custom oracles
+
+## License
+
+MIT License - free use and modification
 
