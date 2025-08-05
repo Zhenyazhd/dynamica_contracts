@@ -366,40 +366,6 @@ marketMaker.closeEpoch(payouts);
 2. **Payout calculation**: System accounts for weights of all epoch periods
 3. **Distribution**: Users receive payouts proportional to their tokens and period weights
 4. **New epoch**: New epoch with new periods starts immediately
-
-## Monitoring
-
-### Events
-- `FactoryMarketMakerCreated`: New market creation
-- `OutcomeTokenTrade`: Trading operation
-- `EpochResolved`: Epoch resolution
-- `PayoutRedemption`: Payout redemption
-- `MarketScaled`: Market scaling
-
-### Metrics
-- Total trading volume
-- Number of active markets
-- Average fee
-- Time to resolution
-
-## Future Improvements
-
-1. **Additional Oracle Types**: Integration with other oracles
-2. **Cross-Chain Functionality**: Support for other blockchains
-3. **Enhanced Liquidity**: More complex market making algorithms
-4. **DAO Governance**: Decentralized parameter management
-5. **Mobile Applications**: User interfaces
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Contacts
-
-- GitHub: [Dynamica Repository]
-- Documentation: [Technical Docs]
-- Community: [Discord/Telegram]
-
 ---
 
 *This document describes the current version of the Dynamica system. For the latest updates, follow the repository.* 
