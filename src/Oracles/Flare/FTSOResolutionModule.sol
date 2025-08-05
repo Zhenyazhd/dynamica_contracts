@@ -6,7 +6,7 @@ import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.
 import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
 // Структура для параметров FTSO
-struct FTSOConfig {
+struct FtsoConfig {
     bytes21[] ftsoIds; // ID FTSO для каждого исхода
     uint256[] staleness; // Максимальное время устаревания для каждого ID
 }
@@ -43,7 +43,7 @@ contract FTSOResolutionModule is Initializable, IMarketResolutionModule {
         onlyMarketResolutionManager
         returns (uint256[] memory payouts)
     {
-        FTSOConfig memory config = abi.decode(resolutionData, (FTSOConfig));
+        FtsoConfig memory config = abi.decode(resolutionData, (FtsoConfig));
         require(config.ftsoIds.length == outcomeSlotCount, "Config mismatch: ftsoIds");
         require(config.staleness.length == outcomeSlotCount, "Config mismatch: staleness");
 
@@ -64,17 +64,6 @@ contract FTSOResolutionModule is Initializable, IMarketResolutionModule {
             valuesAdjusted[i] = (valuesAdjusted[i] * 10 ** 18) / denominator;
         }
 
-        return payouts;
-    }
-
-      
-    function getCurrentMarketData(bytes32 questionId)
-        external
-        returns (uint256[] memory payouts)
-    {
-        payouts = new uint256[](2);
-        payouts[0] = 1000;
-        payouts[1] = 2000;
         return payouts;
     }
 }

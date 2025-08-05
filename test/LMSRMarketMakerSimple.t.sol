@@ -8,13 +8,11 @@ import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
 import {DynamicaFactory} from "../src/MarketMakerFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
-import {ChainlinkResolutionModule, ChainlinkConfig} from "../../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
+import {ChainlinkResolutionModule} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
 import {FTSOResolutionModule} from "../src/Oracles/Flare/FTSOResolutionModule.sol";
 import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
 import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
-import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {console} from "forge-std/src/console.sol";
-import {Test} from "forge-std/src/Test.sol";
 
 /**
  * @title LMSRMarketMakerSimpleTest
@@ -29,6 +27,8 @@ import {Test} from "forge-std/src/Test.sol";
  */
 contract LMSRMarketMakerSimpleTest is OracleSetUP {
     // ============ State Variables ============
+
+    address public constant OWNER = address(0xABCD);
 
     uint8 constant DECIMALS = 10;
     uint8 constant DECIMALS_COLLATERAL = 10;
@@ -55,7 +55,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     address public implementationResolutionModuleChainlink;
 
     /// @notice FTSO resolution module implementation address
-    address public implementationResolutionModuleFTSO;
+    address public implementationResolutionModuleFtsO;
 
     // ============ Constants ============
 
@@ -63,21 +63,18 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     int256 public constant UNIT_DEC = 1e18;
 
     /// @notice Alpha parameter for LMSR (3%)
-    int256 public constant alha = 3 * UNIT_DEC / 100;
-
-    /// @notice Natural logarithm of 2
-    int256 ln_2 = ln(sd(2 * UNIT_DEC)).unwrap();
+    int256 public constant ALPHA = 3 * UNIT_DEC / 100;
 
     // ============ Test Addresses ============
 
     /// @notice Oracle address for testing
-    address ORACLE = address(0x1234);
+    address oracle = address(0x1234);
 
     /// @notice Test trader addresses
-    address trader_0 = address(1);
-    address trader_1 = address(2);
-    address trader_2 = address(3);
-    address trader_3 = address(4);
+    address trader0 = address(1);
+    address trader1 = address(2);
+    address trader2 = address(3);
+    address trader3 = address(4);
 
     address[] outcomeTokenAddresses;
 
@@ -210,7 +207,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     function _deployImplementations() private {
         implementation = new Dynamica();
         implementationResolutionModuleChainlink = address(new ChainlinkResolutionModule());
-        implementationResolutionModuleFTSO = address(new FTSOResolutionModule());
+        implementationResolutionModuleFtsO = address(new FTSOResolutionModule());
     }
 
     /**
@@ -220,10 +217,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         factory = new DynamicaFactory(
             address(implementation),
             implementationResolutionModuleChainlink,
-            implementationResolutionModuleFTSO,
+            implementationResolutionModuleFtsO,
             address(ftsoV2),
             OWNER
         );
+        factory.setAllowedToken(address(mockToken), true);
     }
 
     /**
@@ -239,13 +237,13 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      * @notice Creates the test market with Chainlink configuration
      */
     function _createTestMarket() private {
-        ChainlinkConfig memory chainlinkConfig = _prepareChainlinkConfig();
+        ChainlinkResolutionModule.ChainlinkConfig memory chainlinkConfig = _prepareChainlinkConfig();
         // Create market through factory
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
                 collateralToken: address(mockToken),
-                oracle: ORACLE,
+                oracle: oracle,
                 question: "eth/btc",
                 outcomeSlotCount: 2,
                 startFunding: START_FUNDING,
@@ -265,7 +263,9 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
+                minPrice: 0,
+                maxPrice: 0
             })
         );
         marketMaker = Dynamica(payable(factory.marketMakers(0)));
@@ -276,7 +276,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      * @notice Prepares Chainlink configuration for the test market
      * @return config The Chainlink configuration
      */
-    function _prepareChainlinkConfig() private view returns (ChainlinkConfig memory config) {
+    function _prepareChainlinkConfig() private view returns (ChainlinkResolutionModule.ChainlinkConfig memory config) {
         address[] memory priceFeedAddresses = new address[](2);
         uint256[] memory staleness = new uint256[](2);
         uint8[] memory decimals = new uint8[](2);
@@ -293,17 +293,17 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         decimals[0] = ethUsdAggregator.decimals();
         decimals[1] = btcUsdAggregator.decimals();
 
-        config = ChainlinkConfig({priceFeedAddresses: priceFeedAddresses, staleness: staleness, decimals: decimals});
+        config = ChainlinkResolutionModule.ChainlinkConfig({priceFeedAddresses: priceFeedAddresses, staleness: staleness, decimals: decimals});
     }
 
     /**
      * @notice Mints tokens to test traders
      */
     function _mintTokensToTraders() private {
-        IERC20(mockToken).mint(trader_0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader_1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader_2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader_3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     // ============ Private Test Functions ============
@@ -314,10 +314,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _getInitialBalances() private view returns (uint256[] memory startBalances) {
         startBalances = new uint256[](5);
-        startBalances[0] = IERC20(mockToken).balanceOf(trader_0);
-        startBalances[1] = IERC20(mockToken).balanceOf(trader_1);
-        startBalances[2] = IERC20(mockToken).balanceOf(trader_2);
-        startBalances[3] = IERC20(mockToken).balanceOf(trader_3);
+        startBalances[0] = IERC20(mockToken).balanceOf(trader0);
+        startBalances[1] = IERC20(mockToken).balanceOf(trader1);
+        startBalances[2] = IERC20(mockToken).balanceOf(trader2);
+        startBalances[3] = IERC20(mockToken).balanceOf(trader3);
     }
 
     /**
@@ -490,10 +490,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _redeemPayoutsForTraders(uint32 epoch) private {
         address[] memory traders = new address[](4);
-        traders[0] = trader_0;
-        traders[1] = trader_1;
-        traders[2] = trader_2;
-        traders[3] = trader_3;
+        traders[0] = trader0;
+        traders[1] = trader1;
+        traders[2] = trader2;
+        traders[3] = trader3;
 
         for (uint256 i = 0; i < 4; i++) {
             console.log("redeeming", i);
@@ -508,10 +508,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _displayBalanceComparison(uint256[] memory startBalances) private view {
         uint256[] memory endBalances = new uint256[](5);
-        endBalances[0] = IERC20(mockToken).balanceOf(trader_0);
-        endBalances[1] = IERC20(mockToken).balanceOf(trader_1);
-        endBalances[2] = IERC20(mockToken).balanceOf(trader_2);
-        endBalances[3] = IERC20(mockToken).balanceOf(trader_3);
+        endBalances[0] = IERC20(mockToken).balanceOf(trader0);
+        endBalances[1] = IERC20(mockToken).balanceOf(trader1);
+        endBalances[2] = IERC20(mockToken).balanceOf(trader2);
+        endBalances[3] = IERC20(mockToken).balanceOf(trader3);
         endBalances[4] = IERC20(mockToken).balanceOf(address(marketMaker));
 
         // Display balance changes for each participant
@@ -529,215 +529,3 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         console.log("endBalances", endBalances[4]);
     }
 }
-
-/*
-  netCost 555908056241143224484 (555,)
-  netCost 536530914472432726532
-  netCost 283260834088902418767
-  netCost 260836127244916577738
-  netCost 141529220288594265563
-  netCost 92091957708025698591
-  netCost 53151154512030819909
-  netCost -53088765766026265983
-  netCost 32937849213664532
-  netCost -30121114583731157
-  netCost 5736803886458836
-  redeeming 0
-  redeeming 1
-  redeeming 2
-  redeeming 3
-  startBalances 1000000000000000000000000
-  endBalances 999700000223470262509953
-  startBalances 1000000000000000000000000
-  endBalances 999991308891015655116041
-  startBalances 1000000000000000000000000
-  endBalances 999905867573549853096792
-  startBalances 1000000000000000000000000
-  endBalances 999865407759635693419402
-  startBalances 1880228052328535857812           
-  endBalances 0
-
-  Logs:
-  netCost 55204421254 (552,)
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 54600000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 51400000000
-  netCost 53277881491
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 52700000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 49600000000
-  netCost 22664358503
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 29900000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 13600000000
-  netCost 20794992091
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 26300000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 13600000000
-  netCost 421725197
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 14300000000
-  netCost 11137291262
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 9200000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 12200000000
-  netCost 7334686012
-  minting token 0x0000000000000000000000000000000000000408
-  minting amount 5300000000
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 8800000000
-  netCost -5986992214
-  netCost 570262850
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 1100000000
-  netCost -518422854
-  netCost 103681240
-  minting token 0x0000000000000000000000000000000000000409
-  minting amount 200000000
-  redeeming 0
-  redeeming 1
-  redeeming 2
-  redeeming 3
-  startBalances 100000000000000
-  endBalances 99984117603549
-  startBalances 100000000000000
-  endBalances 99997474896007
-  startBalances 100000000000000
-  endBalances 99993661942635
-  startBalances 100000000000000
-  endBalances 99993022922977
-  startBalances 166003884832
-  endBalances 0
-
-
-
-
-Encountered 2 failing tests in test/LMSRMarketMakerSimple.t.sol:LMSRMarketMakerSimpleTest
-[FAIL: EVM error; database error: failed to get storage for 0x000000000000000000000000000000000000040B at 50942633119752846454219349998365661925608737367104304655302372697895582664657: HTTP error 502 with body: <!DOCTYPE html>
-<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
-<head>
-
-
-<title>testnet.hashio.io | 502: Bad gateway</title>
-<meta charset="UTF-8" />
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
-<meta name="robots" content="noindex, nofollow" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/main.css" />
-
-
-</head>
-<body>
-<div id="cf-wrapper">
-    <div id="cf-error-details" class="p-0">
-        <header class="mx-auto pt-10 lg:pt-6 lg:px-8 w-240 lg:w-full mb-8">
-            <h1 class="inline-block sm:block sm:mb-2 font-light text-60 lg:text-4xl text-black-dark leading-tight mr-2">
-              <span class="inline-block">Bad gateway</span>
-              <span class="code-label">Error code 502</span>
-            </h1>
-            <div>
-               Visit <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=testnet.hashio.io" target="_blank" rel="noopener noreferrer">cloudflare.com</a> for more information.
-            </div>
-            <div class="mt-3">2025-07-23 16:09:26 UTC</div>
-        </header>
-        <div class="my-8 bg-gradient-gray">
-            <div class="w-240 lg:w-full mx-auto">
-                <div class="clearfix md:px-8">
-                  
-<div id="cf-browser-status" class=" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center">
-  <div class="relative mb-10 md:m-0">
-    
-    <span class="cf-icon-browser block md:hidden h-20 bg-center bg-no-repeat"></span>
-    <span class="cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4"></span>
-    
-  </div>
-  <span class="md:block w-full truncate">You</span>
-  <h3 class="md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3">
-    
-    Browser
-    
-  </h3>
-  <span class="leading-1.3 text-2xl text-green-success">Working</span>
-</div>
-
-<div id="cf-cloudflare-status" class=" relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center">
-  <div class="relative mb-10 md:m-0">
-    <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=testnet.hashio.io" target="_blank" rel="noopener noreferrer">
-    <span class="cf-icon-cloud block md:hidden h-20 bg-center bg-no-repeat"></span>
-    <span class="cf-icon-ok w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4"></span>
-    </a>
-  </div>
-  <span class="md:block w-full truncate">Marseille</span>
-  <h3 class="md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3">
-    <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=testnet.hashio.io" target="_blank" rel="noopener noreferrer">
-    Cloudflare
-    </a>
-  </h3>
-  <span class="leading-1.3 text-2xl text-green-success">Working</span>
-</div>
-
-<div id="cf-host-status" class="cf-error-source relative w-1/3 md:w-full py-15 md:p-0 md:py-8 md:text-left md:border-solid md:border-0 md:border-b md:border-gray-400 overflow-hidden float-left md:float-none text-center">
-  <div class="relative mb-10 md:m-0">
-    
-    <span class="cf-icon-server block md:hidden h-20 bg-center bg-no-repeat"></span>
-    <span class="cf-icon-error w-12 h-12 absolute left-1/2 md:left-auto md:right-0 md:top-0 -ml-6 -bottom-4"></span>
-    
-  </div>
-  <span class="md:block w-full truncate">testnet.hashio.io</span>
-  <h3 class="md:inline-block mt-3 md:mt-0 text-2xl text-gray-600 font-light leading-1.3">
-    
-    Host
-    
-  </h3>
-  <span class="leading-1.3 text-2xl text-red-error">Error</span>
-</div>
-
-                </div>
-            </div>
-        </div>
-
-        <div class="w-240 lg:w-full mx-auto mb-8 lg:px-8">
-            <div class="clearfix">
-                <div class="w-1/2 md:w-full float-left pr-6 md:pb-10 md:pr-0 leading-relaxed">
-                    <h2 class="text-3xl font-normal leading-1.3 mb-4">What happened?</h2>
-                    <p>The web server reported a bad gateway error.</p>
-                </div>
-                <div class="w-1/2 md:w-full float-left leading-relaxed">
-                    <h2 class="text-3xl font-normal leading-1.3 mb-4">What can I do?</h2>
-                    <p class="mb-6">Please try again in a few minutes.</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
-  <p class="text-13">
-    <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold">963c71353b9f129f</strong></span>
-    <span class="cf-footer-separator sm:hidden">&bull;</span>
-    <span id="cf-footer-item-ip" class="cf-footer-item hidden sm:block sm:mb-1">
-      Your IP:
-      <button type="button" id="cf-footer-ip-reveal" class="cf-footer-ip-reveal-btn">Click to reveal</button>
-      <span class="hidden" id="cf-footer-ip">2a02:842a:a542:6901:b0c3:78c6:de72:62b1</span>
-      <span class="cf-footer-separator sm:hidden">&bull;</span>
-    </span>
-    <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing?utm_source=errorcode_502&utm_campaign=testnet.hashio.io" id="brand_link" target="_blank">Cloudflare</a></span>
-    
-  </p>
-  <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
-</div><!-- /.error-footer -->
-
-
-    </div>
-</div>
-</body>
-</html>] testCreateToken() (gas: 0)
-[FAIL: Market not expired] testMarketCicle() (gas: 5857920)
-*/

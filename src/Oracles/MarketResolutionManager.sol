@@ -4,6 +4,7 @@ pragma solidity ^0.8.25;
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
+import {ReentrancyGuard} from "@openzeppelin-contracts/utils/ReentrancyGuard.sol";
 import {console} from "forge-std/src/console.sol";
 
 /**
@@ -17,7 +18,7 @@ import {console} from "forge-std/src/console.sol";
  * - Market resolution through configured modules
  * - Centralized tracking of market states
  */
-contract MarketResolutionManager is Ownable  {
+contract MarketResolutionManager is Ownable, ReentrancyGuard  {
     // ============ State Variables ============
 
     /// @notice Address of the factory contract that can register markets
@@ -39,11 +40,6 @@ contract MarketResolutionManager is Ownable  {
     /// @notice Ensures only the factory contract can call the function
     modifier onlyFactory() {
         require(msg.sender == factory, "Only factory can call this function");
-        _;
-    }
-
-    modifier onlyWhenExpired(uint32 expirationEpoch) {
-        require(block.timestamp > expirationEpoch, "Market not expired");
         _;
     }
 
@@ -77,17 +73,21 @@ contract MarketResolutionManager is Ownable  {
         uint256 outcomeSlotCount,
         address resolutionModule,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
-        bytes calldata resolutionData
+        bytes calldata resolutionData,
+        uint256[] calldata interval
     ) external onlyFactory {
         _validateMarketRegistration(questionId, marketMaker, outcomeSlotCount, resolutionModule);
+        uint256 len = interval.length;
 
         marketConfigs[questionId] = IMarketResolutionModule.MarketResolutionConfig(
             marketMaker,
             outcomeSlotCount,
             resolutionModule,
             resolutionData,
-            false, // isResolve
-            resolutionModuleType
+            false, 
+            resolutionModuleType,
+            len > 0 ? interval[0] : 0,
+            len > 0 ? interval[1] : 0
         );
 
         emit MarketRegistered(questionId, marketMaker, resolutionModule);
@@ -101,6 +101,7 @@ contract MarketResolutionManager is Ownable  {
      */
     function resolveMarket(bytes32 questionId)
         external
+        nonReentrant
         onlyOwner
     {        
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
@@ -168,9 +169,30 @@ contract MarketResolutionManager is Ownable  {
         private
         returns (uint256[] memory payouts)
     {
-        payouts = IMarketResolutionModule(config.resolutionModule).resolveMarket(
+        console.log("_getMarketPayouts");
+        uint256[] memory prices;
+        prices = IMarketResolutionModule(config.resolutionModule).resolveMarket(
             config.outcomeSlotCount,
             config.resolutionData
         );
+        if(prices.length == 1) {
+            payouts = new uint256[](2);
+            uint256 scale = 1e18;
+            if(prices[0] < config.minPrice) {
+                prices[0] = config.minPrice;
+            } else if(prices[0] > config.maxPrice) {
+                prices[0] = config.maxPrice;
+            } 
+            payouts[1] = (prices[0] - config.minPrice) * scale / (config.maxPrice - config.minPrice);
+            payouts[0] = scale - payouts[1];
+            console.log("payouts[0]", payouts[0]);
+            console.log("payouts[1]", payouts[1]);
+        } else {
+            payouts = new uint256[](prices.length);
+            for(uint256 i = 0; i < prices.length; i++) {
+                payouts[i] = prices[i];
+            }
+        }
+      
     }
 }
