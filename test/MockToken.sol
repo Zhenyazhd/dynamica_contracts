@@ -1,6 +1,4 @@
 pragma solidity ^0.8.25;
-
-
 import {IERC20} from "../src/interfaces/IERC20.sol";
 
 contract MockToken is IERC20 {
@@ -12,8 +10,8 @@ contract MockToken is IERC20 {
     string private _symbol = "DYN";
     uint8 private _decimals = 18;
 
-    constructor(uint8 decimals) {
-        _decimals = decimals;
+    constructor(uint8 decimals_) {
+        _decimals = decimals_;
     }
 
     function mint(address to, uint256 amount) external {

@@ -11,7 +11,7 @@ import {Test} from "forge-std/src/Test.sol";
  * @dev Test setup for mock Chainlink and FTSO oracles for ETH and BTC
  */
 contract OracleSetUP is Test {
-    address OWNER = address(0xABCD);
+    address owner = address(0xABCD);
 
     // Mock Chainlink Aggregators
     MockAggregator public ethUsdAggregator;
@@ -65,7 +65,7 @@ contract OracleSetUP is Test {
     /**
      * @dev Update FTSO prices
      */
-    function updateFTSOPrices(uint256 ethPrice, uint256 btcPrice) external {
+    function updateFtsOPrices(uint256 ethPrice, uint256 btcPrice) external {
         ftsoV2.setFeedData(ETH_USD_FEED_ID, ethPrice, FTSO_DECIMALS, uint64(block.timestamp));
 
         ftsoV2.setFeedData(BTC_USD_FEED_ID, btcPrice, FTSO_DECIMALS, uint64(block.timestamp));
@@ -85,7 +85,7 @@ contract OracleSetUP is Test {
     /**
      * @dev Get current FTSO prices
      */
-    function getFTSOPrices() external returns (uint256 ethPrice, uint256 btcPrice) {
+    function getFtsOPrices() external returns (uint256 ethPrice, uint256 btcPrice) {
         (ethPrice,,) = ftsoV2.getFeedById(ETH_USD_FEED_ID);
         (btcPrice,,) = ftsoV2.getFeedById(BTC_USD_FEED_ID);
     }
@@ -97,9 +97,9 @@ contract OracleSetUP is Test {
         assertEq(btcPrice, BTC_USD_PRICE, "BTC Chainlink price mismatch");
 
         // Test FTSO prices
-        (uint256 ethFTSOPrice, uint256 btcFTSOPrice) = this.getFTSOPrices();
-        assertEq(ethFTSOPrice, ETH_USD_FTSO_PRICE, "ETH FTSO price mismatch");
-        assertEq(btcFTSOPrice, BTC_USD_FTSO_PRICE, "BTC FTSO price mismatch");
+        (uint256 ethFtsOPrice, uint256 btcFtsOPrice) = this.getFtsOPrices();
+        assertEq(ethFtsOPrice, ETH_USD_FTSO_PRICE, "ETH FTSO price mismatch");
+        assertEq(btcFtsOPrice, BTC_USD_FTSO_PRICE, "BTC FTSO price mismatch");
 
         // Test FTSO protocol ID
         assertEq(ftsoV2.getFtsoProtocolId(), FTSO_PROTOCOL_ID, "FTSO protocol ID mismatch");
@@ -119,15 +119,15 @@ contract OracleSetUP is Test {
         this.updateChainlinkPrices(newEthPrice, newBtcPrice);
 
         // Update FTSO prices
-        this.updateFTSOPrices(newEthPrice / 1e3, newBtcPrice / 1e3); // Convert to FTSO decimals
+        this.updateFtsOPrices(newEthPrice / 1e3, newBtcPrice / 1e3); // Convert to FTSO decimals
 
         // Verify updates
         (uint256 ethPrice, uint256 btcPrice) = this.getChainlinkPrices();
         assertEq(ethPrice, newEthPrice, "ETH Chainlink price update failed");
         assertEq(btcPrice, newBtcPrice, "BTC Chainlink price update failed");
 
-        (uint256 ethFTSOPrice, uint256 btcFTSOPrice) = this.getFTSOPrices();
-        assertEq(ethFTSOPrice, newEthPrice / 1e3, "ETH FTSO price update failed");
-        assertEq(btcFTSOPrice, newBtcPrice / 1e3, "BTC FTSO price update failed");
+        (uint256 ethFtsOPrice, uint256 btcFtsOPrice) = this.getFtsOPrices();
+        assertEq(ethFtsOPrice, newEthPrice / 1e3, "ETH FTSO price update failed");
+        assertEq(btcFtsOPrice, newBtcPrice / 1e3, "BTC FTSO price update failed");
     }
 }

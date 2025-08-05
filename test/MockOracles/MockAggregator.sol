@@ -16,11 +16,11 @@ contract MockAggregator is AggregatorV3Interface {
     uint256 private _updatedAt;
     uint80 private _roundId;
 
-    constructor(int256 price, uint8 decimals, string memory description, uint256 version) {
+    constructor(int256 price, uint8 decimals_, string memory description_, uint256 version_) {
         _price = price;
-        _decimals = decimals;
-        _description = description;
-        _version = version;
+        _decimals = decimals_;
+        _description = description_;
+        _version = version_;
         _updatedAt = block.timestamp;
         _roundId = 1;
     }

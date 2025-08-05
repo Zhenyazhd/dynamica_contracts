@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {IERC20} from "./IERC20.sol";
-
 /**
  * @title IDynamica
  * @dev Interface for a simple prediction market maker contract that allows users to buy and sell outcome tokens
@@ -28,10 +26,7 @@ interface IDynamica {
     /// @param outcomeTokenNetCost The net cost of the trade
     /// @param marketFees The market fees charged
     event OutcomeTokenTrade(
-        address indexed trader,
-        int256[] outcomeTokenAmounts,
-        int256 outcomeTokenNetCost,
-        uint256 marketFees
+        address indexed trader, int256[] outcomeTokenAmounts, int256 outcomeTokenNetCost, uint256 marketFees
     );
 
     /// @notice Emitted when the market is resolved
@@ -45,7 +40,9 @@ interface IDynamica {
     /// @param collateralToken The collateral token address
     /// @param question The market question
     /// @param payout The payout amount
-    event PayoutRedemption(address indexed redeemer, address indexed collateralToken, string indexed question, uint256 payout);
+    event PayoutRedemption(
+        address indexed redeemer, address indexed collateralToken, string indexed question, uint256 payout
+    );
 
     /// @notice Emitted when the fee is changed
     /// @param timestamp The time of the change
@@ -143,9 +140,8 @@ interface IDynamica {
     error FailedToTransferToken();
     /// @notice Thrown if the return to owner transfer fails
     error NotEnoughCollateralToCoverPayouts(uint256 shortfall);
-    
+    /// @notice Thrown if the epoch is finished but not resolved yet
     error EpochFinishedButNotResolvedYet(uint32 epoch);
-
     /// @notice Thrown if the market is expired
     error MarketExpired();
     /// @notice Thrown if the new expiration epoch is less than the current epoch
@@ -155,24 +151,37 @@ interface IDynamica {
 
     /// @notice Market configuration struct
     struct Config {
-        address owner; ///< Owner of the market
-        address collateralToken; ///< Collateral token address
-        address oracle; ///< Oracle address
-        uint8 decimals; ///< Decimals for outcome tokens
-        string question; ///< Market question
-        uint256 outcomeSlotCount; ///< Number of outcomes
-        uint256 startFunding; ///< Initial funding
-        uint256 outcomeTokenAmounts; ///< Amount per outcome
-        uint64 fee; ///< Fee in basis points
-        int256 alpha; ///< Alpha parameter for LMSR
-        int256 expLimit; ///< Exponential limit
-        uint32 expirationEpoch; ///< Expiration time
-        uint32 gamma; 
+        address owner;
+        ///< Owner of the market
+        address collateralToken;
+        ///< Collateral token address
+        address oracle;
+        ///< Oracle address
+        uint8 decimals;
+        ///< Decimals for outcome tokens
+        string question;
+        ///< Market question
+        uint256 outcomeSlotCount;
+        ///< Number of outcomes
+        uint256 startFunding;
+        ///< Initial funding
+        uint256 outcomeTokenAmounts;
+        ///< Amount per outcome
+        uint64 fee;
+        ///< Fee in basis points
+        int256 alpha;
+        ///< Alpha parameter for LMSR
+        int256 expLimit;
+        ///< Exponential limit
+        uint32 expirationEpoch;
+        ///< Expiration time
+        uint32 gamma;
+        ///< Gamma parameter for LMSR
         uint32 epochDuration;
+        ///< Epoch duration
         uint32 periodDuration;
     }
 
-  
     /// @notice Structure to store epoch-specific data
     struct EpochData {
         /// @notice Start timestamp of the epoch
@@ -186,7 +195,7 @@ interface IDynamica {
         /// @notice Array of payout numerators for each outcome
         uint256[10] payoutNumerators;
         /// @notice Array of supplies for each outcome token
-        uint256[10] outcomeTokenSupplies; 
+        uint256[10] outcomeTokenSupplies;
     }
 
     /// @notice Structure to store period-specific data
@@ -224,16 +233,14 @@ interface IDynamica {
     function oracleManager() external view returns (address);
     /// @notice Returns the number of outcome slots
     function outcomeSlotCount() external view returns (uint256);
-    /// @notice Returns the 
+    /// @notice Returns the
     function checkEpoch() external view returns (bool);
-   
 
     // ============ External Functions ============
 
     /// @notice Makes a prediction by buying or selling outcome tokens
     /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
     function makePrediction(int256[] memory deltaOutcomeAmounts_) external;
-
 
     /// @notice Closes the epoch by resolving the condition
     /// @param payouts Array of payout numerators for each outcome

@@ -14,8 +14,6 @@ import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
 import {MarketMaker} from "./MarketMaker.sol";
 import {IDynamica} from "./interfaces/IDynamica.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
-import "forge-std/src/console.sol";
-
 /**
  * @title Dynamica v2
  * @dev A perpetual prediction market maker implementing the Logarithmic Market Scoring Rule (LMSR)
@@ -23,40 +21,40 @@ import "forge-std/src/console.sol";
  *         Supports continuous trading with automatic epoch transitions and time-weighted rewards.
  *         Implements advanced scaling mechanisms for market efficiency.
  */
+
 contract Dynamica is MarketMaker {
-    
     // ============ CONSTANTS ============
-    
+
     /// @notice Decimal precision for fixed-point arithmetic (18 decimals)
     int256 public constant SCALING_FACTOR = 5000;
-    
+
     /// @notice Scaling interval for periodic market adjustments
     uint256 public constant SCALING_INTERVAL = 7 days;
-    
+
     /// @notice Number of periods per epoch
     uint32 public constant PERIOD_NUMBER = 10;
-    
+
     /// @notice Scaling factor unit for calculations
     int256 public constant SCALING_FACTOR_UNIT = 10000;
 
     // ============ STATE VARIABLES ============
-    
+
     /// @notice Global scaling parameter for market efficiency
     SD59x18 public G;
-    
+
     /// @notice Exponential limit to prevent overflow in calculations
-    SD59x18 public EXP_LIMIT_DEC;
-    
+    SD59x18 public expLimitDec;
+
     /// @notice Liquidity parameter that controls market depth and price sensitivity
     SD59x18 public alpha;
 
     // ============ EVENTS ============
-    
+
     /// @notice Emitted when the market is scaled for efficiency
     event MarketScaled(uint256 oldG, uint256 newG, uint256 liberatedCollateral);
 
     // ============ CONSTRUCTOR ============
-    
+
     /**
      * @dev Constructor that disables initializers for implementation contract
      */
@@ -75,39 +73,34 @@ contract Dynamica is MarketMaker {
      * 3. Initializes gamma powers for time-weighted rewards
      * 4. Sets up decimal precision and global scaling parameter
      */
-    function initialize(IDynamica.Config calldata config)
-        public
-        initializer
-    {
+    function initialize(IDynamica.Config calldata config) public initializer {
         // Initialize base contract
         __Ownable_init(config.owner);
         __ERC1155_init("");
         __ERC1155Holder_init();
-        
+
         // Set basic market parameters
         collateralToken = config.collateralToken;
         fee = config.fee;
-        
+
         // Validate collateral token decimals
         uint8 collateralTokenDecimals = IERC20(collateralToken).decimals();
         if (collateralTokenDecimals > 18) {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
-        
+
         // Set LMSR-specific parameters
         alpha = sd(int256((uint256(config.alpha) * uint256(UNIT_DEC)) / 100));
-        EXP_LIMIT_DEC = sd(int256((uint256(config.expLimit) * uint256(UNIT_DEC)) / 100));
-        
+        expLimitDec = sd(int256((uint256(config.expLimit) * uint256(UNIT_DEC)) / 100));
+
         // Initialize gamma powers for time-weighted rewards
         _initializeGammaPowers(config.gamma);
         // Initialize the market with basic parameters
-        initializeMarket(
-            config
-        );
-        
+        initializeMarket(config);
+
         // Set decimal precision and global scaling parameter
-        DEC_COLLATERAL = int256(10 ** uint256(collateralTokenDecimals));
-        DEC_Q = int256(10 ** uint256(uint32(config.decimals)));
+        decCollateral = int256(10 ** uint256(collateralTokenDecimals));
+        decQ = int256(10 ** uint256(uint32(config.decimals)));
         G = sd(UNIT_DEC); // Initialize global scaling parameter
     }
 
@@ -124,38 +117,38 @@ contract Dynamica is MarketMaker {
         if (outcomeTokenIndex >= n) {
             revert InvalidOutcomeIndex(outcomeTokenIndex, n);
         }
-        
+
         // Convert current supplies to fixed-point format
         SD59x18[] memory qWad = new SD59x18[](n);
         for (uint256 i = 0; i < n; i++) {
             int256 qi = int256(epochData[currentEpochNumber].outcomeTokenSupplies[i]);
             qWad[i] = sd(int256(uint256(qi) * uint256(UNIT_DEC)));
         }
-        
+
         // Calculate liquidity parameter b = α * Σ(q_i)
         SD59x18 b = getB(qWad);
         if (b == sd(0)) {
             revert ZeroLiquidityParameter();
         }
-        
+
         // Normalize quantities by dividing by b
         for (uint256 i = 0; i < n; i++) {
             qWad[i] = qWad[i].div(b);
         }
-        
+
         // Calculate offset for numerical stability
         SD59x18 offset = _computeOffset(qWad);
-        
+
         // Calculate sum of exponentials
         SD59x18 sum = sd(0);
         for (uint256 i = 0; i < n; i++) {
             sum = sum.add(exp(qWad[i].sub(offset)));
         }
-        
+
         if (sum == sd(0)) {
             revert ZeroSum();
         }
-        
+
         // Calculate marginal price for the specified outcome
         SD59x18 p = exp(qWad[outcomeTokenIndex].sub(offset)).div(sum);
         priceWad = int256(p.unwrap());
@@ -172,32 +165,32 @@ contract Dynamica is MarketMaker {
         if (deltaOutcomeAmounts.length != n) {
             revert InvalidDeltaOutcomeAmountsLength(deltaOutcomeAmounts.length, n);
         }
-        
+
         // Calculate new state after trade
         int256[] memory qNew = new int256[](n);
         SD59x18[] memory balancesSd = new SD59x18[](n);
         SD59x18[] memory qNewSd = new SD59x18[](n);
-        
+
         for (uint256 i = 0; i < n; i++) {
             int256 currentSupply = int256(epochData[currentEpochNumber].outcomeTokenSupplies[i]);
             qNew[i] = currentSupply + deltaOutcomeAmounts[i];
             qNewSd[i] = sd(int256(uint256(qNew[i]) * uint256(UNIT_DEC)));
             balancesSd[i] = sd(int256(uint256(currentSupply) * uint256(UNIT_DEC)));
         }
-        
+
         // Calculate liquidity parameters for old and new states
         SD59x18 bOld = getB(balancesSd);
         SD59x18 bNew = getB(qNewSd);
-        
+
         // Calculate cost function values for old and new states
         (SD59x18 sumOld, SD59x18 offOld) = sumExp(balancesSd, bOld);
         (SD59x18 sumNew, SD59x18 offNew) = sumExp(qNewSd, bNew);
-        
+
         SD59x18 cOld = bOld.mul(ln(sumOld).add(offOld));
         SD59x18 cNew = bNew.mul(ln(sumNew).add(offNew));
 
         // Calculate net cost difference
-        netCost = (cNew.sub(cOld).unwrap() * DEC_COLLATERAL / UNIT_DEC) / DEC_Q;
+        netCost = (cNew.sub(cOld).unwrap() * decCollateral / UNIT_DEC) / decQ;
     }
 
     // ============ INTERNAL FUNCTIONS ============
@@ -210,59 +203,10 @@ contract Dynamica is MarketMaker {
     function _initializeGammaPowers(uint32 gamma) internal {
         gammaPow = new uint32[](PERIOD_NUMBER);
         gammaPow[0] = RANGE; // First period gets full reward
-        
+
         for (uint32 i = 1; i < PERIOD_NUMBER; i++) {
             gammaPow[i] = (gammaPow[i - 1] * gamma) / RANGE;
         }
-    }
-
-    /**
-     * @notice Calculates the marginal price for a specific outcome from a given state vector
-     * @param qs Array of outcome token amounts representing the market state
-     * @param idx Index of the outcome to calculate price for
-     * @return priceWad The marginal price in fixed-point format (18 decimals)
-     * @dev Internal function for price calculation from arbitrary state
-     */
-    function _marginalPriceFromMemory(int256[] memory qs, uint8 idx) internal view returns (int256 priceWad) {
-        uint256 n = qs.length;
-        if (idx >= n) {
-            revert InvalidOutcomeIndex(idx, n);
-        }
-        
-        // Validate all quantities are non-negative
-        SD59x18[] memory qWad = new SD59x18[](n);
-        for (uint256 i = 0; i < n; i++) {
-            if (qs[i] < 0) {
-                revert NegativeOutcomeAmount(qs[i]);
-            }
-            qWad[i] = sd(int256(uint256(qs[i]) * uint256(UNIT_DEC)));
-        }
-        
-        // Calculate liquidity parameter
-        SD59x18 b = getB(qWad);
-        if (b.unwrap() == 0) {
-            revert ZeroLiquidityParameter();
-        }
-        
-        // Normalize quantities
-        for (uint256 i = 0; i < n; i++) {
-            qWad[i] = qWad[i].div(b);
-        }
-        
-        // Calculate offset and sum for numerical stability
-        SD59x18 offset = _computeOffset(qWad);
-        SD59x18 sum = sd(0);
-        for (uint256 i = 0; i < n; i++) {
-            sum = sum.add(exp(qWad[i].sub(offset)));
-        }
-        
-        if (sum.unwrap() == 0) {
-            revert ZeroSum();
-        }
-        
-        // Calculate marginal price
-        SD59x18 numer = exp(qWad[idx].sub(offset));
-        priceWad = numer.div(sum).unwrap();
     }
 
     /**
@@ -292,12 +236,12 @@ contract Dynamica is MarketMaker {
     function sumExp(SD59x18[] memory q, SD59x18 b) internal view returns (SD59x18 sum, SD59x18 offset) {
         uint256 n = q.length;
         SD59x18[] memory z = new SD59x18[](n);
-        
+
         // Normalize quantities by dividing by b
         for (uint256 i = 0; i < n; i++) {
             z[i] = q[i].div(b);
         }
-        
+
         // Find maximum value for offset calculation
         offset = z[0];
         for (uint256 i = 1; i < n; i++) {
@@ -305,10 +249,10 @@ contract Dynamica is MarketMaker {
                 offset = z[i];
             }
         }
-        
+
         // Apply exponential limit offset for numerical stability
-        offset = offset.sub(EXP_LIMIT_DEC);
-        
+        offset = offset.sub(expLimitDec);
+
         // Calculate sum of exponentials with offset
         sum = sd(0);
         for (uint256 i = 0; i < n; i++) {
@@ -320,7 +264,7 @@ contract Dynamica is MarketMaker {
      * @notice Computes the offset for numerical stability in exponential calculations
      * @param z Array of normalized outcome amounts
      * @return The offset value to prevent overflow
-     * @dev Subtracts EXP_LIMIT_DEC from the maximum value to prevent overflow
+     * @dev Subtracts expLimitDec from the maximum value to prevent overflow
      */
     function _computeOffset(SD59x18[] memory z) private view returns (SD59x18) {
         SD59x18 maxZ = z[0];
@@ -329,6 +273,6 @@ contract Dynamica is MarketMaker {
                 maxZ = z[i];
             }
         }
-        return maxZ.sub(EXP_LIMIT_DEC);
+        return maxZ.sub(expLimitDec);
     }
 }

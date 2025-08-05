@@ -1,189 +1,405 @@
-# Dynamica v2 - Perpetual Prediction Markets
+# Dynamica - Perpetual Prediction Market System
 
-## Project Essence
+## System Overview
 
-**Dynamica** is a platform for creating perpetual prediction markets built on blockchain. Markets offer the ability to predict the ratio of several continuous quantities and bet money on it. The project implements a modern market making system using the **Logarithmic Market Scoring Rule (LMSR)** algorithm, which ensures continuous trading and automatic price discovery.
+Dynamica is a decentralized prediction market system built on the Ethereum blockchain. It uses the Logarithmic Market Scoring Rule (LMSR) for automatic price determination, supports continuous trading with automatic transitions between epochs, and enables participants to place bets on how the ratio between various continuous quantities evolves over time.
 
-### Core Concepts:
-
-- **Perpetual Markets**: Markets operate continuously with automatic transitions between epochs
-- **LMSR Algorithm**: Uses logarithmic scoring function for price and liquidity determination
-- **Multi-Outcome Markets**: Support for up to 10 different outcomes in one market
-- **Time Weights**: Reward system considering trading participation time
-- **Cross-Chain Oracles**: Integration with Chainlink oracles
-
-## Main Features and Characteristics
-
-### 🎯 Key Capabilities
-
-1. **Continuous Trading**
-   - Automatic transitions between epochs and periods
-   - Continuous liquidity without waiting for market resolution
-   - Dynamic pricing based on current state
-
-2. **Advanced Market Making**
-   - LMSR algorithm for efficient price discovery
-   - Automatic scaling to maintain liquidity
-   - Protection against manipulation through mathematical constraints
-
-3. **Time-based Weights and Incentives**
-   - Gamma power system to encourage early predictions
-   - Decreasing multipliers for later periods
-   - Fair distribution of rewards
-
-4. **Modular Oracle Architecture**
-   - Chainlink support for Hedera
-   - FTSO integration for Flare Network
-   - Extensible system for adding new oracles
-
-5. **Gas Efficiency**
-   - Use of minimal proxies (EIP-1167)
-   - Optimized mathematical computations
-   - Batch processing of operations
-
-### 🔧 Technical Features
-
-- **Smart Contracts**: Written in Solidity 0.8.25
-- **Mathematical Library**: PRB Math for precise calculations
-- **Token Standards**: ERC-1155 for outcome tokens, ERC-20 for collateral
-- **Security**: OpenZeppelin contracts and upgradeable proxies
-- **Testing**: Complete test suite with Foundry
-
-### 📊 Market Structure
-
-- **Epochs**: Main time periods (configurable)
-- **Periods**: Epoch subdivisions for time weights
-- **Outcomes**: Up to 10 possible event results
-- **Collateral**: Any ERC-20 token for trading
+### Key Features:
+- **Perpetual Markets**: Continuous markets without fixed end dates
+- **LMSR Pricing**: Automatic price determination based on liquidity
+- **Multi-Oracle Support**: Chainlink oracle support
+- **Epoch-Based Trading**: Trading organized by epochs with automatic resolution at the end of each epoch
+- **Time-Weighted Rewards**: Reward system based on prediction timing (early periods = higher weight)
+- **Gas-Efficient**: Use of minimal proxies for gas optimization
 
 ## System Architecture
 
-### Main Contracts:
+### Main Components:
 
-1. **DynamicaFactory** - Factory for creating new markets
-2. **Dynamica** - Main market maker contract with LMSR
-3. **MarketMaker** - Base class with common logic
-4. **MarketResolutionManager** - Market resolution management
-5. **Resolution Modules** - Modules for various oracles
+```
+Dynamica System
+├── MarketMakerFactory.sol     # Factory for creating markets
+├── Dynamica.sol              # Main market contract (LMSR)
+├── MarketMaker.sol           # Base market contract
+├── Interfaces/               # Interfaces and data structures
+├── Oracles/                  # Oracle integration modules
+│   ├── MarketResolutionManager.sol
+│   ├── Hedera/ChainlinkResolutionModule.sol
+│   └── Flare/FTSOResolutionModule.sol
+└── MockTokenNew.sol          # Test token
+```
 
-### Workflow:
+## Detailed Contract Description
 
-1. Market creation through factory
-2. Initialization with initial funding
-3. Continuous trading throughout epochs
-4. Automatic resolution through oracles
-5. Reward distribution to participants
+### 1. MarketMakerFactory.sol
 
-## Smart Contract Functions
+**Purpose**: Factory for creating new prediction markets using the minimal proxy pattern.
 
-### DynamicaFactory
+**Key Functions**:
 
-#### Main Functions:
-- `createMarketMaker()` - Create new market
-- `setOracleCoordinator()` - Set oracle coordinator
-- `getAllMarketMakers()` - Get all created markets
-- `getMarketMakersByCreator()` - Markets by specific creator
+#### Market Creation
+```solidity
+function createMarketMaker(
+    IDynamica.Config memory config,
+    IMarketResolutionModule.MarketResolutionConfig memory resolutionConfig
+) external onlyOwner nonReentrant returns (address cloneAddress)
+```
 
-#### Events:
-- `FactoryMarketMakerCreated` - New market created
+**Configuration Parameters**:
+- `owner`: Market owner
+- `collateralToken`: Collateral token address (ERC20)
+- `oracle`: Oracle address
+- `question`: Market question
+- `outcomeSlotCount`: Number of possible outcomes
+- `startFunding`: Initial funding
+- `outcomeTokenAmounts`: Number of tokens per outcome
+- `fee`: Fee in basis points
+- `alpha`: LMSR liquidity parameter
+- `expLimit`: Exponent limit for numerical stability
+- `expirationEpoch`: Expiration epoch (0 = perpetual)
+- `gamma`: Time weighting parameter
+- `epochDuration`: Epoch duration
+- `periodDuration`: Period duration
 
-### Dynamica (Main Contract)
+#### Token Management
+```solidity
+function setAllowedToken(address token, bool allowed) external onlyOwner
+```
 
-#### Initialization and Setup:
-- `initialize()` - Initialize contract with parameters
-- `initializeMarket()` - Setup initial market state
+#### Queries
+```solidity
+function getAllMarketMakers() external view returns (address[] memory)
+function getMarketMakerCount() external view returns (uint256)
+function getMarketMakersByCreator(address creator) external view returns (address[] memory)
+function getMarketMakerCreator(address marketMaker) external view returns (address)
+function isMarketMaker(address marketMaker) external view returns (bool)
+```
 
-#### Trading Functions:
-- `makePrediction()` - Place prediction/trade
-- `calcNetCost()` - Calculate trade cost
-- `calcMarginalPrice()` - Calculate marginal price for outcome
+### 2. Dynamica.sol
 
-#### Epoch Management:
-- `closeEpoch()` - Close epoch and calculate payouts
-- `redeemPayout()` - Get epoch payouts
-- `updateEpochAndPeriod()` - Update time periods
+**Purpose**: Main prediction market contract implementing LMSR (Logarithmic Market Scoring Rule).
 
-#### Administrative Functions:
-- `changeFee()` - Change fee
-- `withdrawFee()` - Withdraw collected fees
-- `emergencyExit()` - Emergency exit
+**Key Mathematical Functions**:
 
-#### Events:
-- `MarketInitialized` - Market initialized
-- `OutcomeTokenTrade` - Trade executed
-- `EpochResolved` - Epoch resolved
-- `PayoutRedemption` - Payout received
-- `MarketScaled` - Market scaled
+#### Marginal Price Calculation
+```solidity
+function calcMarginalPrice(uint256 outcomeTokenIndex) external view returns (int256)
+```
 
-### MarketMaker (Base Class)
+**LMSR Algorithm**:
+1. Quantity normalization: `q_i / b`, where `b = α * Σ(q_i)`
+2. Offset calculation for numerical stability
+3. Exponential calculation: `exp(q_i - offset)`
+4. Normalization: `p_i = exp(q_i - offset) / Σ(exp(q_j - offset))`
 
-#### Additional Functions:
-- `checkEpoch()` - Check epoch status
-- `payoutNumerators()` - Get payout numerators
-- `outcomeTokenSupplies()` - Get token supplies
-- `changeExpirationEpoch()` - Change expiration time
+#### Net Cost Calculation
+```solidity
+function calcNetCost(int256[] memory deltaOutcomeAmounts) external view returns (int256)
+```
 
-#### Events:
-- `TokenMinted` - Tokens minted
-- `TokenBurned` - Tokens burned
-- `FeeChanged` - Fee changed
-- `FeeWithdrawal` - Fees withdrawn
-- `SendMarketsSharesToOwner` - Shares sent to owner
+**LMSR Cost Formula**:
+```
+C(q) = b * ln(Σ(exp(q_i / b)))
+ΔC = C(q_new) - C(q_old)
+```
 
-### MarketResolutionManager
+#### LMSR Parameters
+- `alpha`: Liquidity parameter (controls market depth)
+- `expLimitDec`: Exponent limit to prevent overflow
+- `G`: Global scaling parameter
 
-#### Management Functions:
-- `registerMarket()` - Register market with oracle
-- `resolveMarket()` - Resolve market through oracle
-- `getCurrentMarketData()` - Get market data
+### 3. MarketMaker.sol
 
-#### Events:
-- `MarketRegistered` - Market registered
-- `MarketResolved` - Market resolved
+**Purpose**: Base contract for all types of prediction markets.
 
-### Resolution Modules
+**Temporal Structure**:
+- **Epoch**: Main time interval (e.g., 10 days) with automatic resolution at the end
+- **Period**: Epoch subdivision (e.g., 1 day) with different reward weights
+- **Tokens**: ERC1155 tokens for each outcome in each period
+- **Oracle**: Automatically provides results at the end of each epoch
 
-#### ChainlinkResolutionModule (Hedera):
-- `resolveMarket()` - Resolve through Chainlink
-- `getCurrentMarketData()` - Get data
+#### Trading Management
+```solidity
+function makePrediction(int256[] memory deltaOutcomeAmounts_) 
+    external nonReentrant epochNotResolved(currentEpochNumber)
+```
 
-#### FTSOResolutionModule (Flare):
-- `resolveMarket()` - Resolve through FTSO
-- `getCurrentMarketData()` - Get data
+**Trading Logic**:
+1. Update epoch/period if necessary
+2. Validate input data
+3. Calculate net cost
+4. Update user balances
+5. Handle payments and fees
+
+#### Reward System
+```solidity
+function _initializeGammaPowers(uint32 gamma) private
+```
+
+**Time Weighting**:
+- **Early periods = higher weight**: Predictions made at the beginning of an epoch receive higher rewards
+- **Decreasing weight**: Each subsequent period has a lower weight than the previous one
+- **Formula**: `gammaPow[i] = gammaPow[i-1] * gamma / RANGE`
+- **First period**: Receives full reward (100%)
+- **Motivation**: Encourages early and more risky predictions
+
+#### Epoch Resolution
+```solidity
+function closeEpoch(uint256[] calldata payouts) 
+    external onlyOracleManager epochNotResolved(currentEpochNumber) returns (bool)
+```
+
+**Epoch Resolution Process**:
+1. **Automatic trigger**: At the end of each epoch, the oracle automatically provides results
+2. **Payout validation**: Verification of oracle data correctness
+3. **Payout denominator calculation**: Result normalization
+4. **Base price calculation**: Price determination for each outcome
+5. **Fund transfer to next epoch**: Automatic creation of new epoch
+6. **Timestamp update**: Transition to next trading cycle
+
+**Features**:
+- Each epoch ends with automatic resolution
+- Oracle results determine payouts for all participants
+- New epoch starts immediately after previous resolution
+- System supports continuous trading without interruptions
+
+#### Payout Redemption
+```solidity
+function redeemPayout(uint32 epoch) external nonReentrant epochResolved(epoch)
+```
+
+**Payout Calculation**:
+```
+payout = Σ(balance * gammaPow[period] * basePrice[outcome] / decQ) / RANGE
+```
+
+**Formula Components**:
+- `balance`: User's outcome token quantity
+- `gammaPow[period]`: Period weight (early periods = higher weight)
+- `basePrice[outcome]`: Outcome base price from oracle
+- `decQ`: Denominator for normalization
+- `RANGE`: Scaling constant (10,000)
+
+**Period Weight Example** (for 10-day epoch with gamma = 9000):
+- Period 1: 100% (full weight)
+- Period 2: 90% 
+- Period 3: 81%
+- Period 4: 72.9%
+- ...
+- Period 10: 43% (lowest weight)
+
+### 4. Oracle Integration
+
+#### MarketResolutionManager.sol
+**Purpose**: Coordinator for managing market resolution by epochs.
+
+```solidity
+function resolveMarket(bytes32 questionId) external onlyOwner
+function getCurrentMarketData(bytes32 questionId) external returns (uint256[] memory payouts)
+```
+
+**Functions**:
+- **Automatic resolution**: Automatically requests oracle data at the end of each epoch
+- **Oracle coordination**: Manages different oracle types (Chainlink, FTSO)
+- **Data validation**: Verifies correctness and relevance of oracle data
+- **Result distribution**: Passes resolution results to corresponding markets
+
+#### ChainlinkResolutionModule.sol
+**Purpose**: Integration with Chainlink oracles.
+
+**Supported Pairs**:
+- ETH/USD
+- BTC/USD
+- Other pairs via Chainlink Price Feeds
+
+#### FTSOResolutionModule.sol
+**Purpose**: Integration with Flare Time Series Oracle (FTSO).
+
+**Features**:
+- Flare Network support
+- Automatic price updates
+- FTSO V2 integration
 
 ## Mathematical Foundations
 
-### LMSR Algorithm:
-- **Cost Function**: C(q) = b * ln(Σ(exp(q_i/b)))
-- **Marginal Price**: p_i = exp(q_i/b) / Σ(exp(q_j/b))
-- **Liquidity**: b = α * Σ(q_i)
+### LMSR (Logarithmic Market Scoring Rule)
 
-### Time Weights:
-- Gamma powers to encourage early predictions
-- Decreasing multipliers across periods
-- Fair reward distribution
+LMSR is an automated market maker that provides liquidity and automatic price determination.
 
-## Security
+#### Basic Formulas:
 
-- Overflow checks in mathematical operations
-- Input parameter validation
-- Protection against manipulation through mathematical constraints
-- Emergency functions for owners
-- Upgradeable contracts for bug fixes
+**Cost Function**:
+```
+C(q) = b * ln(Σ(exp(q_i / b)))
+```
+where:
+- `q_i` - quantity of outcome i tokens
+- `b = α * Σ(q_i)` - liquidity parameter
+- `α` - LMSR parameter
 
-## Deployment and Usage
+**Marginal Price**:
+```
+p_i = exp(q_i / b) / Σ(exp(q_j / b))
+```
 
-### Requirements:
-- Foundry for compilation and testing
-- Solidity 0.8.25+ support
-- Access to oracles (Chainlink, FTSO)
+**Trading Cost**:
+```
+ΔC = C(q_new) - C(q_old)
+```
 
-### Supported Networks:
-- **Hedera**: Through Chainlink oracles
-- **Flare**: Through FTSO V2
-- **Other EVM-compatible**: Through custom oracles
+### Numerical Stability
+
+To prevent overflow, offset technique is used:
+
+```solidity
+offset = max(q_i / b) - EXP_LIMIT_DEC
+p_i = exp((q_i / b) - offset) / Σ(exp((q_j / b) - offset))
+```
+
+### Limitations
+
+- Maximum number of outcomes: 10
+- Maximum fee: 100% (10,000 basis points)
+- Trading size limits to prevent manipulation
+
+## Testing and Security Analysis
+
+### Test Files
+- `LMSRMarketMakerSimple.t.sol`: LMSR functionality tests and obtaining values for comparison with our Python model
+- `RangedMarketMakerSimple.t.sol`: Range market tests (implementation just started)
+- `DynamicaCoverageTests.t.sol`: Code coverage tests
+- `DynamicaRevertTests.t.sol`: Error and revert condition tests
+
+### Mock Contracts
+- `MockTokenNew.sol`: Test ERC20 token
+- `MockAggregator.sol`: Mock Chainlink aggregator
+- `MockFtsoV2.sol`: Mock FTSO V2 contract
+
+### Security Analysis and Code Coverage
+
+#### Slither Analysis
+- `slither-report.json`: Detailed static security analysis report
+- Includes vulnerability analysis, optimization recommendations, and best practices
+- Checks for reentrancy, access control, arithmetic issues, and other security problems
+
+#### Code Coverage
+- `coverage/`: Directory with code coverage reports
+- `coverage/html/`: HTML reports for visual coverage analysis
+- Shows percentage coverage of each function and code line
+- Helps identify untested code sections
+
+## Deployment
+
+### Requirements
+- Solidity ^0.8.25
+- OpenZeppelin Contracts
+- PRB-Math for fixed-point arithmetic
+- Chainlink for oracles
+
+### Deployment Order
+1. Deploy implementation contracts
+2. Deploy MarketMakerFactory
+3. Configure oracles
+4. Create first markets
+
+## Usage
+
+### Market Creation
+```solidity
+// 1. Prepare configuration
+IDynamica.Config memory config = IDynamica.Config({
+    owner: msg.sender,
+    collateralToken: address(token),
+    oracle: oracleAddress,
+    question: "Will ETH be above $3000 on Dec 31?",
+    outcomeSlotCount: 2,
+    startFunding: 1000e18,
+    outcomeTokenAmounts: 500e18,
+    fee: 300, // 3%
+    alpha: 3,
+    expLimit: 12750,
+    decimals: 18,
+    expirationEpoch: 0, // perpetual
+    gamma: 9000,        // Time weighting parameter (90%)
+    epochDuration: 10 days,  // Epoch = 10 days
+    periodDuration: 1 days   // Period = 1 day
+});
+
+// 2. Create via factory
+factory.createMarketMaker(config, resolutionConfig);
+```
+
+**Market Temporal Structure**:
+- **Epoch**: 10 days with automatic resolution at the end
+- **Periods**: 10 periods of 1 day each
+- **Weighting**: Early periods receive higher weight (90% of previous)
+- **Oracle**: Automatically provides results at the end of each epoch
+
+### Period-Based Trading
+```solidity
+// Buy outcome 0 tokens in current period
+int256[] memory amounts = new int256[](2);
+amounts[0] = 100e18; // buy 100 outcome 0 tokens
+amounts[1] = 0;      // don't touch outcome 1
+
+marketMaker.makePrediction(amounts);
+```
+
+**Trading Features**:
+- **Period-based trading**: Each period has its own tokens and weights
+- **Time weighting**: Early periods = higher weight in payouts
+- **Automatic transitions**: System automatically transitions to next period
+- **Continuity**: Trading continues without breaks between epochs
+
+### Epoch Resolution
+```solidity
+// Oracle automatically resolves epoch at period end
+uint256[] memory payouts = new uint256[](2);
+payouts[0] = 0;    // outcome 0 lost
+payouts[1] = 1e18; // outcome 1 won
+
+marketMaker.closeEpoch(payouts);
+```
+
+**Resolution Process**:
+1. **Automatic trigger**: At epoch end, oracle automatically provides results
+2. **Payout calculation**: System accounts for weights of all epoch periods
+3. **Distribution**: Users receive payouts proportional to their tokens and period weights
+4. **New epoch**: New epoch with new periods starts immediately
+
+## Monitoring
+
+### Events
+- `FactoryMarketMakerCreated`: New market creation
+- `OutcomeTokenTrade`: Trading operation
+- `EpochResolved`: Epoch resolution
+- `PayoutRedemption`: Payout redemption
+- `MarketScaled`: Market scaling
+
+### Metrics
+- Total trading volume
+- Number of active markets
+- Average fee
+- Time to resolution
+
+## Future Improvements
+
+1. **Additional Oracle Types**: Integration with other oracles
+2. **Cross-Chain Functionality**: Support for other blockchains
+3. **Enhanced Liquidity**: More complex market making algorithms
+4. **DAO Governance**: Decentralized parameter management
+5. **Mobile Applications**: User interfaces
 
 ## License
 
-MIT License - free use and modification
+MIT License - see LICENSE file for details.
 
+## Contacts
+
+- GitHub: [Dynamica Repository]
+- Documentation: [Technical Docs]
+- Community: [Discord/Telegram]
+
+---
+
+*This document describes the current version of the Dynamica system. For the latest updates, follow the repository.* 

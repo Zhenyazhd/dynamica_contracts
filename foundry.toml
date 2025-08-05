@@ -5,6 +5,8 @@ libs = ["dependencies"]
 ffi = true
 optimizer = true
 optimizer_runs = 200
+evm_version    = "cancun"
+solc_version = "0.8.25"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
