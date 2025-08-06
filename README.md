@@ -106,7 +106,6 @@ C(q) = b * ln(Σ(exp(q_i / b)))
 #### LMSR Parameters
 - `alpha`: Liquidity parameter (controls market depth)
 - `expLimitDec`: Exponent limit to prevent overflow
-- `G`: Global scaling parameter
 
 ### 3. MarketMaker.sol
 
@@ -116,7 +115,7 @@ C(q) = b * ln(Σ(exp(q_i / b)))
 - **Epoch**: Main time interval (e.g., 10 days) with automatic resolution at the end
 - **Period**: Epoch subdivision (e.g., 1 day) with different reward weights
 - **Tokens**: ERC1155 tokens for each outcome in each period
-- **Oracle**: Automatically provides results at the end of each epoch
+- **Oracle**: Provides results at the end of each epoch
 
 #### Trading Management
 ```solidity
@@ -355,8 +354,8 @@ marketMaker.makePrediction(amounts);
 ```solidity
 // Oracle automatically resolves epoch at period end
 uint256[] memory payouts = new uint256[](2);
-payouts[0] = 0;    // outcome 0 lost
-payouts[1] = 1e18; // outcome 1 won
+payouts[0] = 30e18;    // outcome 0 data
+payouts[1] = 4000e18; // outcome 1 data
 
 marketMaker.closeEpoch(payouts);
 ```
