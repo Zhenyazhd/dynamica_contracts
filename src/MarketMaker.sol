@@ -545,9 +545,9 @@ contract MarketMaker is
             epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
 
             if (totalWeightedShares[i] != 0) {
-                totalPayout += (totalWeightedShares[i] * payouts[i]) / payoutDenominator_;
-                epochData[currentEpochNumber].basePrice[i] = (payouts[i] * uint256(decCollateral)) / payoutDenominator_;
-                console.log("epochData[currentEpochNumber].basePrice[i]", epochData[currentEpochNumber].basePrice[i]);
+                totalPayout += ((totalWeightedShares[i] * payouts[i] * uint256(DEC_COLLATERAL)) / payoutDenominator_ /uint256(DEC_Q));
+                epochData[currentEpochNumber].basePrice[i] = (payouts[i] * uint256(DEC_COLLATERAL)) / payoutDenominator_;
+                console.log('epochData[currentEpochNumber].basePrice[i]', epochData[currentEpochNumber].basePrice[i]);
             }
         }
 
