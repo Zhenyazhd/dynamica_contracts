@@ -37,3 +37,11 @@ smartcontractkit-chainlink = "2.24.0"
 
 [rpc_endpoints]
 hedera = "https://testnet.hashio.io/api"
+
+[profile.ci]
+# CI profile for GitHub Actions
+ffi = false  # Disable FFI in CI for security
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+solc_version = "0.8.25"
