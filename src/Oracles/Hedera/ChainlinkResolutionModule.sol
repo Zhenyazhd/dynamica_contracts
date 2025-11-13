@@ -5,8 +5,6 @@ import {AggregatorV3Interface} from
     "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
 import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
-import {console} from "forge-std/src/console.sol";
-
 
 /**
  * @title ChainlinkResolutionModule
@@ -21,7 +19,6 @@ import {console} from "forge-std/src/console.sol";
  * - Handles precision adjustments to ensure exact payout distribution
  */
 contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
-
     /**
      * @title ChainlinkConfig
      * @dev Configuration structure for Chainlink price feeds
@@ -75,18 +72,20 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param resolutionData Encoded ChainlinkConfig containing price feed addresses and parameters
      * @return payouts Array of payout numerators that sum to 1e18
      */
-    function resolveMarket(
-        uint256 outcomeSlotCount,
-        bytes calldata resolutionData
-    ) external view onlyMarketResolutionManager returns (uint256[] memory payouts) {
+    function resolveMarket(uint256 outcomeSlotCount, bytes calldata resolutionData)
+        external
+        view
+        onlyMarketResolutionManager
+        returns (uint256[] memory payouts)
+    {
         // Decode the configuration data
         ChainlinkConfig memory config = abi.decode(resolutionData, (ChainlinkConfig));
 
         // Validate configuration consistency
-        //_validateConfig(config, outcomeSlotCount);
+        _validateConfig(config, outcomeSlotCount);
 
         // Initialize payout array
-        payouts = new uint256[](config.priceFeedAddresses.length);
+        payouts = new uint256[](outcomeSlotCount);
 
         // Get current timestamp for staleness validation
         uint64 currentTimestamp = uint64(block.timestamp);
@@ -94,15 +93,11 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         // Fetch and process price data from all feeds
         uint256 denominator = _fetchAndProcessPrices(config, outcomeSlotCount, currentTimestamp, payouts);
 
-        if(config.priceFeedAddresses.length > 1) {
-            // Normalize payouts to sum to 1e18
-            _normalizePayouts(payouts, denominator);
+        // Normalize payouts to sum to 1e18
+        _normalizePayouts(payouts, denominator);
 
-            // Ensure exact payout distribution
-            _adjustPayoutPrecision(payouts);
-        }
-
-        console.log(payouts[0]);
+        // Ensure exact payout distribution
+        _adjustPayoutPrecision(payouts);
 
         return payouts;
     }
@@ -134,33 +129,18 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         uint64 currentTimestamp,
         uint256[] memory payouts
     ) private view returns (uint256 denominator) {
-        if(config.priceFeedAddresses.length > 1) {
-            for (uint256 i = 0; i < outcomeSlotCount; i++) {
-                AggregatorV3Interface priceFeed = AggregatorV3Interface(config.priceFeedAddresses[i]);
-
-                // Fetch latest price data
-                (, int256 price,, uint256 updatedAt,) = priceFeed.latestRoundData();
-
-                // Validate data freshness
-                require(currentTimestamp - updatedAt <= config.staleness[i], "Oracle data is stale");
-
-                // Convert price to 18 decimal precision and add to payouts
-                payouts[i] = uint256(price) * 10 ** (18 - config.decimals[i]);
-                denominator += payouts[i];
-            }
-        } else {
-
-            AggregatorV3Interface priceFeed = AggregatorV3Interface(config.priceFeedAddresses[0]);
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            AggregatorV3Interface priceFeed = AggregatorV3Interface(config.priceFeedAddresses[i]);
 
             // Fetch latest price data
             (, int256 price,, uint256 updatedAt,) = priceFeed.latestRoundData();
 
             // Validate data freshness
-            require(currentTimestamp - updatedAt <= config.staleness[0], "Oracle data is stale");
+            require(currentTimestamp - updatedAt <= config.staleness[i], "Oracle data is stale");
 
             // Convert price to 18 decimal precision and add to payouts
-            payouts[0] = uint256(price) * 10 ** (18 - config.decimals[0]);
-            denominator = 1e18;
+            payouts[i] = uint256(price) * 10 ** (18 - config.decimals[i]);
+            denominator += payouts[i];
         }
 
         require(denominator > 0, "Denominator cannot be zero");
@@ -207,5 +187,12 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
                 maxIndex = i;
             }
         }
+    }
+
+    function getCurrentMarketData(bytes32 /* questionId */ ) external pure returns (uint256[] memory payouts) {
+        payouts = new uint256[](2);
+        payouts[0] = 1000;
+        payouts[1] = 2000;
+        return payouts;
     }
 }

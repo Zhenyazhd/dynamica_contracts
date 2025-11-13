@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-//import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
-import {IERC20} from "../src/interfaces/IERC20.sol";
+import {MockToken, IERC20} from "./MockToken.sol";
 import {MockToken} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
-import {DynamicaFactory} from "../src/MarketMakerFactory.sol";
+import {DynamicaFactory} from "../src/DynamicaFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
-import {FTSOResolutionModule} from "../src/Oracles/Flare/FTSOResolutionModule.sol";
 import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
 import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
+import {LMSRMath} from "../src/LMSRMath.sol";
+
 import {console} from "forge-std/src/console.sol";
 
 /**
@@ -39,6 +39,9 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     /// @notice Dynamica implementation contract
     Dynamica public implementation;
 
+    /// @notice LMSR math contract
+    LMSRMath public lmsrMathExternal;
+
     /// @notice Deployed market maker instance
     Dynamica public marketMaker;
 
@@ -54,8 +57,6 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     /// @notice Chainlink resolution module implementation address
     address public implementationResolutionModuleChainlink;
 
-    /// @notice FTSO resolution module implementation address
-    address public implementationResolutionModuleFtsO;
 
     // ============ Constants ============
 
@@ -207,7 +208,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     function _deployImplementations() private {
         implementation = new Dynamica();
         implementationResolutionModuleChainlink = address(new ChainlinkResolutionModule());
-        implementationResolutionModuleFtsO = address(new FTSOResolutionModule());
+        lmsrMathExternal = new LMSRMath();
     }
 
     /**
@@ -217,11 +218,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         factory = new DynamicaFactory(
             address(implementation),
             implementationResolutionModuleChainlink,
-            implementationResolutionModuleFtsO,
-            address(ftsoV2),
-            OWNER
+            OWNER,
+            address(lmsrMathExternal)
         );
-        factory.setAllowedToken(address(mockToken), true);
+        factory.addAllowedCollateralToken(address(mockToken));
     }
 
     /**
@@ -263,9 +263,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
         marketMaker = Dynamica(payable(factory.marketMakers(0)));
@@ -351,7 +349,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
             int256 mockBalance = int256(IERC20(mockToken).balanceOf(traders[i]));
             marketMaker.setApprovalForAll(address(marketMaker), true);
             IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
-            marketMaker.makePrediction(amounts[i]);
+            marketMaker.makePrediction(amounts[i], false);
             for (uint256 j = 0; j < amounts[i].length; j++) {
                 //assertEq(int256(marketMaker.balanceOf(traders[i], marketMaker.shareId(marketMaker.currentEpochNumber(), marketMaker.currentPeriodNumber(), j))), int256(balances[j]) + amounts[i][j]);
             }

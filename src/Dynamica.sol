@@ -10,190 +10,788 @@ pragma solidity ^0.8.25;
 ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝ ╚═════╝╚═╝  ╚═╝
 */
 
-import {SD59x18, sd, exp, ln} from "@prb-math/src/SD59x18.sol";
-import {MarketMaker} from "./MarketMaker.sol";
+import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IDynamica} from "./interfaces/IDynamica.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
+import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1155Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import {ERC1155HolderUpgradeable} from
+    "@openzeppelin-contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
+import {ERC1155SupplyUpgradeable} from
+    "@openzeppelin-contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin-contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {LMSRMath} from "./LMSRMath.sol";
+
 /**
- * @title Dynamica v2
- * @dev A perpetual prediction market maker implementing the Logarithmic Market Scoring Rule (LMSR)
- * @notice This contract extends MarketMaker v2 with LMSR-specific pricing and cost calculation logic.
- *         Supports continuous trading with automatic epoch transitions and time-weighted rewards.
- *         Implements advanced scaling mechanisms for market efficiency.
+ * @title MarketMaker v2
+ * @dev A perpetual prediction market maker contract that allows users to buy and sell outcome tokens.
+ *      Implements epoch and period-based market making logic for multi-outcome prediction markets.
+ *      Uses ERC1155 tokens for outcome representation with time-weighted rewards.
+ *      Supports continuous trading with automatic epoch transitions.
  */
+contract Dynamica is
+    Initializable,
+    OwnableUpgradeable,
+    ERC1155HolderUpgradeable,
+    ERC1155SupplyUpgradeable,
+    ReentrancyGuardUpgradeable,
+    IDynamica
+{
+    using SafeERC20 for IERC20;
 
-contract Dynamica is MarketMaker {
-    // ============ CONSTANTS ============
+    // ============ Constants ============
 
-    /// @notice Decimal precision for fixed-point arithmetic (18 decimals)
-    int256 public constant SCALING_FACTOR = 5000;
+    /// @notice Maximum number of outcome slots supported
+    uint256 constant MAX_SLOT_COUNT = 10;
 
-    /// @notice Scaling interval for periodic market adjustments
-    uint256 public constant SCALING_INTERVAL = 7 days;
+    /// @notice Maximum fee/gamma that can be set (100% in basis points)
+    uint32 public constant RANGE = 10_000;
 
-    /// @notice Number of periods per epoch
-    uint32 public constant PERIOD_NUMBER = 10;
+    /// @notice Unit decimal for calculations (18 decimals)
+    int256 public constant UNIT_DEC = 1e18;
 
-    /// @notice Scaling factor unit for calculations
-    int256 public constant SCALING_FACTOR_UNIT = 10000;
+    // ============ State Variables ============
 
-    // ============ STATE VARIABLES ============
+    uint256 public version;
 
-    /// @notice Global scaling parameter for market efficiency
-    SD59x18 public G;
+    /// @notice LMSR math contract
+    LMSRMath public lmsrMath;
+
+    /// @notice Alpha parameter for LMSR calculations
+    int256 public alpha;
 
     /// @notice Exponential limit to prevent overflow in calculations
-    SD59x18 public expLimitDec;
+    int256 public expLimit;
 
-    /// @notice Liquidity parameter that controls market depth and price sensitivity
-    SD59x18 public alpha;
+    /// @notice Collateral token decimals multiplier
+    int256 public decCollateral;
 
-    // ============ EVENTS ============
+    /// @notice Outcome token decimals multiplier
+    int256 public decQ;
 
-    /// @notice Emitted when the market is scaled for efficiency
-    event MarketScaled(uint256 oldG, uint256 newG, uint256 liberatedCollateral);
+    // Time Management
+    /// @notice Duration of each epoch in seconds
+    uint32 public epochDuration;
 
-    // ============ CONSTRUCTOR ============
+    /// @notice Duration of each period within an epoch in seconds
+    uint32 public periodDuration;
+
+    /// @notice Current period start time
+    uint32 public periodStart;
+
+    /// @notice Current period number (1-based)
+    uint32 public currentPeriodNumber;
+
+    /// @notice Current epoch number (1-based)
+    uint32 public currentEpochNumber;
+
+    /// @notice Array of gamma power values for time-weighted rewards
+    uint32[] public gammaPow;
+
+    // ============ Mappings ============
+
+    /// @notice Mapping from epoch number to epoch data
+    mapping(uint256 => EpochData) public epochData;
+
+    /// @notice Mapping from user address to token ID to blocked amount
+    mapping(address => mapping(uint256 => uint256)) public blockedForUser;
+
+    /// @notice Mapping from token ID to blocked amount for epoch
+    mapping(uint256 => uint256) public blockedForEpoch;
+
+    // ============ Market Configuration ============
+    /// @notice Address of the ERC20 collateral token
+    address public collateralToken;
+
+    /// @notice The question that this prediction market resolves
+    string public question;
+
+    /// @notice The fee rate in basis points (e.g., 300 = 3%)
+    uint64 public fee;
+
+    /// @notice Total fees received from trades
+    uint256 public feeReceived;
+
+    /// @notice Decimals for outcome tokens
+    uint8 public decimals;
+
+    /// @notice Address of the oracle manager that can resolve the market
+    address public oracleManager;
+
+    /// @notice Number of possible outcomes in the market
+    uint256 public outcomeSlotCount;
+
+    /// @notice Expiration time of the market
+    uint32 public expirationEpoch;
+
+    uint256[50] private __gap;
+
+    // ============ Constructor ============
 
     /**
      * @dev Constructor that disables initializers for implementation contract
+     * @notice This prevents the implementation contract from being initialized directly
      */
     constructor() {
         _disableInitializers();
     }
 
-    // ============ INITIALIZATION ============
+    // ============ Modifiers ============
+
+    /// @notice Ensures the epoch is not yet resolved
+    modifier epochNotResolved(uint256 epoch) {
+        if (epochData[epoch].payoutDenominator != 0) {
+            revert MarketAlreadyResolved();
+        }
+        if (expirationEpoch != 0 && epoch > expirationEpoch) {
+            revert MarketExpired();
+        }
+        _;
+    }
+
+    /// @notice Ensures the epoch is resolved
+    modifier epochResolved(uint256 epoch) {
+        if (epochData[epoch].payoutDenominator == 0) {
+            revert MarketNotResolved();
+        }
+        _;
+    }
+
+    /// @notice Ensures only the oracle manager can call the function
+    modifier onlyOracleManager() {
+        if (oracleManager != msg.sender) {
+            revert OnlyOracleManager(msg.sender);
+        }
+        _;
+    }
+
+    // ============ Initialization ============
 
     /**
-     * @notice Initializes the Dynamica v2 market maker with configuration parameters
-     * @param config Configuration struct containing market parameters
-     * @dev This function:
-     * 1. Initializes the base MarketMaker v2 contract
-     * 2. Sets up LMSR-specific parameters (alpha, expLimit, gamma)
-     * 3. Initializes gamma powers for time-weighted rewards
-     * 4. Sets up decimal precision and global scaling parameter
+     * @notice Initializes the market with funding and outcome configuration
+     * @param config The configuration for the market
+     * @param lmsrMathAddress Address of the LMSR math contract
+     * @dev Emits MarketInitialized event
      */
-    function initialize(IDynamica.Config calldata config) public initializer {
-        // Initialize base contract
+    function initialize(Config calldata config, address lmsrMathAddress) public initializer {
         __Ownable_init(config.owner);
         __ERC1155_init("");
+        __ERC1155Supply_init();
         __ERC1155Holder_init();
+        __ReentrancyGuard_init();
+        version = 1;
 
-        // Set basic market parameters
         collateralToken = config.collateralToken;
         fee = config.fee;
 
-        // Validate collateral token decimals
-        uint8 collateralTokenDecimals = IERC20(collateralToken).decimals();
+        uint8 collateralTokenDecimals = IERC20Metadata(collateralToken).decimals();
         if (collateralTokenDecimals > 18) {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
 
-        // Set LMSR-specific parameters
-        alpha = sd(int256((uint256(config.alpha) * uint256(UNIT_DEC)) / 100));
-        expLimitDec = sd(int256((uint256(config.expLimit) * uint256(UNIT_DEC)) / 100));
+        require(config.periodDuration > 0, "periodDuration=0");
+        require(config.epochDuration > 0, "epochDuration=0");
+        require(config.epochDuration % config.periodDuration == 0, "epochDuration%periodDuration!=0");
 
-        // Initialize gamma powers for time-weighted rewards
+        currentEpochNumber = 1;
+        currentPeriodNumber = 1;
+        epochDuration = config.epochDuration;
+        periodDuration = config.periodDuration;
+        oracleManager = config.oracle;
+        question = config.question;
+        outcomeSlotCount = config.outcomeSlotCount;
+        expirationEpoch = config.expirationEpoch;
+
         _initializeGammaPowers(config.gamma);
-        // Initialize the market with basic parameters
-        initializeMarket(config);
+        lmsrMath = LMSRMath(lmsrMathAddress);
 
-        // Set decimal precision and global scaling parameter
-        decCollateral = int256(10 ** uint256(collateralTokenDecimals));
-        decQ = int256(10 ** uint256(uint32(config.decimals)));
-        G = sd(UNIT_DEC); // Initialize global scaling parameter
+        alpha = config.alpha;
+        expLimit = config.expLimit;
+
+        // Initialize first epoch and period
+        epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
+        periodStart = uint32(block.timestamp);
+
+        epochData[currentEpochNumber].funding = config.startFunding;
+
+        // Set decimals and initialize decimal constants
+        decimals = config.decimals;
+        decCollateral = int256(10 ** collateralTokenDecimals);
+        decQ = int256(10 ** uint32(decimals));
+
+        // Create initial outcome tokens
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            _mint(address(this), shareId(currentEpochNumber, currentPeriodNumber, i), config.outcomeTokenAmounts, "");
+            epochData[currentEpochNumber].initialTokenSupply[i] = config.outcomeTokenAmounts;
+        }
+
+        emit MarketInitialized(config.startFunding, config.question, config.outcomeTokenAmounts);
     }
 
-    // ============ PUBLIC FUNCTIONS ============
+    // ============ External Functions ============
 
     /**
-     * @notice Calculates the current marginal price for a specific outcome
-     * @param outcomeTokenIndex Index of the outcome token (0-based)
-     * @return priceWad The marginal price in fixed-point format (18 decimals)
-     * @dev Uses LMSR pricing formula: P_i = exp(q_i/b) / Σ(exp(q_j/b))
+     * @notice Makes a prediction by buying or selling outcome tokens
+     * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
+     *        Positive values = buying tokens, Negative values = selling tokens
+     * @param isRollover Whether this is a rollover trade
+     * @dev Emits OutcomeTokenTrade event
      */
-    function calcMarginalPrice(uint8 outcomeTokenIndex) public view returns (int256 priceWad) {
-        uint256 n = outcomeSlotCount;
-        if (outcomeTokenIndex >= n) {
-            revert InvalidOutcomeIndex(outcomeTokenIndex, n);
+    function makePrediction(int256[] memory deltaOutcomeAmounts_, bool isRollover)
+        external
+        nonReentrant
+        epochNotResolved(currentEpochNumber)
+    {
+        // Update epoch and period if needed
+        _updateEpochAndPeriod();
+
+        // Validate input length
+        if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
+            revert InvalidLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
         }
 
-        // Convert current supplies to fixed-point format
-        SD59x18[] memory qWad = new SD59x18[](n);
-        for (uint256 i = 0; i < n; i++) {
-            int256 qi = int256(epochData[currentEpochNumber].outcomeTokenSupplies[i]);
-            qWad[i] = sd(int256(uint256(qi) * uint256(UNIT_DEC)));
+        // Validate sell amounts
+        _validateSellAmounts(deltaOutcomeAmounts_, isRollover);
+
+        // Calculate net cost and process payment
+        int256[] memory qCurrent = new int256[](outcomeSlotCount);
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            qCurrent[i] = int256(outcomeTokenSuppliesPerEpoch(currentEpochNumber, i));
         }
+        int256 netCost = (
+            lmsrMath.calcNetCostPure(qCurrent, deltaOutcomeAmounts_, alpha, uint256(expLimit)) * decCollateral
+                / UNIT_DEC
+        ) / decQ;
+        bool isBuy = netCost > 0;
+        uint256 cost = isBuy ? uint256(netCost) : uint256(-netCost);
 
-        // Calculate liquidity parameter b = α * Σ(q_i)
-        SD59x18 b = getB(qWad);
-        if (b == sd(0)) {
-            revert ZeroLiquidityParameter();
-        }
+        // Update user shares
+        _updateUserShares(msg.sender, deltaOutcomeAmounts_, isRollover);
 
-        // Normalize quantities by dividing by b
-        for (uint256 i = 0; i < n; i++) {
-            qWad[i] = qWad[i].div(b);
-        }
+        // Handle payment and fees
+        uint256 feeAmount = _handleTradePayment(cost, isBuy);
 
-        // Calculate offset for numerical stability
-        SD59x18 offset = _computeOffset(qWad);
-
-        // Calculate sum of exponentials
-        SD59x18 sum = sd(0);
-        for (uint256 i = 0; i < n; i++) {
-            sum = sum.add(exp(qWad[i].sub(offset)));
-        }
-
-        if (sum == sd(0)) {
-            revert ZeroSum();
-        }
-
-        // Calculate marginal price for the specified outcome
-        SD59x18 p = exp(qWad[outcomeTokenIndex].sub(offset)).div(sum);
-        priceWad = int256(p.unwrap());
+        emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
     }
 
     /**
-     * @notice Calculates the net cost of a trade using the LMSR cost function
-     * @param deltaOutcomeAmounts Array of token amount changes for each outcome
-     * @return netCost The net cost in collateral tokens (positive = cost, negative = payout)
-     * @dev Uses LMSR cost function: C(q') - C(q) where C(q) = b * ln(Σ(exp(q_i/b)))
+     * @notice Closes the current epoch by resolving it with payout ratios
+     * @param payouts Array of payout numerators for each outcome
+     * @return True if market is expired and shares sent to owner
+     * @dev Only callable by the oracle manager. Emits EpochResolved event.
      */
-    function calcNetCost(int256[] memory deltaOutcomeAmounts) public view override returns (int256 netCost) {
-        uint256 n = outcomeSlotCount;
-        if (deltaOutcomeAmounts.length != n) {
-            revert InvalidDeltaOutcomeAmountsLength(deltaOutcomeAmounts.length, n);
+    function closeEpoch(uint256[] calldata payouts)
+        external
+        onlyOracleManager
+        nonReentrant
+        epochNotResolved(currentEpochNumber)
+        returns (bool)
+    {
+        _closeEpoch(payouts);
+        if (expirationEpoch != 0 && currentEpochNumber > expirationEpoch) {
+            _sendMarketsSharesToOwner();
+            return true;
         }
-
-        // Calculate new state after trade
-        int256[] memory qNew = new int256[](n);
-        SD59x18[] memory balancesSd = new SD59x18[](n);
-        SD59x18[] memory qNewSd = new SD59x18[](n);
-
-        for (uint256 i = 0; i < n; i++) {
-            int256 currentSupply = int256(epochData[currentEpochNumber].outcomeTokenSupplies[i]);
-            qNew[i] = currentSupply + deltaOutcomeAmounts[i];
-            qNewSd[i] = sd(int256(uint256(qNew[i]) * uint256(UNIT_DEC)));
-            balancesSd[i] = sd(int256(uint256(currentSupply) * uint256(UNIT_DEC)));
-        }
-
-        // Calculate liquidity parameters for old and new states
-        SD59x18 bOld = getB(balancesSd);
-        SD59x18 bNew = getB(qNewSd);
-
-        // Calculate cost function values for old and new states
-        (SD59x18 sumOld, SD59x18 offOld) = sumExp(balancesSd, bOld);
-        (SD59x18 sumNew, SD59x18 offNew) = sumExp(qNewSd, bNew);
-
-        SD59x18 cOld = bOld.mul(ln(sumOld).add(offOld));
-        SD59x18 cNew = bNew.mul(ln(sumNew).add(offNew));
-
-        // Calculate net cost difference
-        netCost = (cNew.sub(cOld).unwrap() * decCollateral / UNIT_DEC) / decQ;
+        emit EpochResolved(msg.sender, payouts, epochData[currentEpochNumber - 1].payoutDenominator);
+        return false;
     }
 
-    // ============ INTERNAL FUNCTIONS ============
+    /**
+     * @notice Redeems payout for resolved epoch
+     * @param epoch The epoch number to redeem for
+     * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
+     */
+    function redeemPayout(uint32 epoch) external nonReentrant epochResolved(epoch) {
+        uint256 totalPayout = 0;
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+
+        // Calculate payout for each outcome across all periods
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                uint256 id = shareId(epoch, j, i);
+                uint256 balance = balanceOf(msg.sender, id) - blockedForUser[msg.sender][id];
+                if (balance > 0) {
+                    totalPayout += (balance * gammaPow[j - 1] * epochData[epoch].basePrice[i] / uint256(decQ)) / RANGE;
+                    _burnToken(msg.sender, balance, id);
+                }
+            }
+        }
+
+        if (totalPayout == 0) {
+            revert NothingToRedeem();
+        }
+
+        IERC20(collateralToken).safeTransfer(msg.sender, totalPayout);
+
+        emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
+    }
+
+    /**
+     * @notice Claims tokens for a new epoch based on blocked tokens from previous epoch
+     * @param user The address of the user to claim for
+     * @dev Converts blocked tokens from previous epoch to new epoch tokens based on base prices
+     */
+    function claimForNewEpoch(address user) external nonReentrant {
+        uint256 totalPayout = 0;
+        int256[] memory deltaOutcomeAmounts = new int256[](outcomeSlotCount);
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                uint256 id = shareId(currentEpochNumber - 1, j, i);
+                uint256 balance = blockedForUser[user][id];
+                blockedForUser[user][id] = 0;
+                blockedForEpoch[id] -= balance;
+                totalPayout +=
+                    (balance * gammaPow[j - 1] * epochData[currentEpochNumber - 1].basePrice[i] / uint256(decQ)) / RANGE;
+            }
+            if (totalPayout > 0 && epochData[currentEpochNumber].basePrice[i] > 0) {
+                deltaOutcomeAmounts[i] =
+                    int256((totalPayout * uint256(decQ)) / epochData[currentEpochNumber].basePrice[i]);
+            } else {
+                deltaOutcomeAmounts[i] = 0;
+            }
+            totalPayout = 0;
+        }
+        _updateUserShares(user, deltaOutcomeAmounts, true);
+
+        emit ClaimForNewEpoch(user, deltaOutcomeAmounts, currentEpochNumber, currentPeriodNumber);
+    }
+
+    /**
+     * @notice Unblocks tokens for a given epoch and period
+     * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
+     * @param epochs Array of epochs
+     * @param periods Array of periods
+     * @dev Transfers blocked tokens from contract to user
+     */
+    function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
+        external
+        nonReentrant
+    {
+        uint256 length = epochs.length;
+        if (length != deltaOutcomeAmounts_.length) {
+            revert InvalidLength(length, deltaOutcomeAmounts_.length);
+        }
+        if (length != epochs.length) {
+            revert InvalidLength(length, epochs.length);
+        }
+        if (length != periods.length) {
+            revert InvalidLength(length, periods.length);
+        }
+        uint256[] memory ids = new uint256[](outcomeSlotCount);
+        for (uint256 i = 0; i < length; i++) {
+            for (uint256 j = 0; j < outcomeSlotCount; j++) {
+                ids[j] = shareId(epochs[i], periods[i], j);
+                if (blockedForUser[msg.sender][ids[j]] < deltaOutcomeAmounts_[i][j]) {
+                    revert InsufficientBalance(blockedForUser[msg.sender][ids[j]], deltaOutcomeAmounts_[i][j]);
+                }
+                blockedForUser[msg.sender][ids[j]] -= deltaOutcomeAmounts_[i][j];
+                blockedForEpoch[ids[j]] -= deltaOutcomeAmounts_[i][j];
+            }
+            _safeBatchTransferFrom(address(this), msg.sender, ids, deltaOutcomeAmounts_[i], "");
+            emit TokensUnblocked(msg.sender, deltaOutcomeAmounts_[i], epochs[i], periods[i]);
+        }
+    }
+
+    /**
+     * @notice Emergency exit function to withdraw all tokens of a specific type
+     * @param token The address of the token to withdraw
+     * @dev Only callable by owner
+     */
+    function emergencyExit(address token) external onlyOwner nonReentrant {
+        uint256 amount = IERC20(token).balanceOf(address(this));
+        IERC20(token).safeTransfer(owner(), amount);
+        emit EmergencyExit(block.timestamp, token, amount);
+    }
+
+    /**
+     * @notice Returns the epoch data for a given epoch
+     * @param epoch The epoch number
+     * @return The epoch data
+     */
+    function getEpochData(uint256 epoch) external view returns (IDynamica.EpochData memory) {
+        return epochData[epoch];
+    }
+
+    // ============ Public Functions ============
+
+    /**
+     * @notice Updates the current epoch and period based on elapsed time
+     * @dev Only callable by owner. Automatically advances epochs and periods as time passes.
+     */
+    function updateEpochAndPeriod() public onlyOwner {
+        _updateEpochAndPeriod();
+    }
+
+    /**
+     * @notice Checks if the current epoch should be resolved
+     * @return True if epoch duration has passed or market is expired
+     */
+    function checkEpoch() public view returns (bool) {
+        return (block.timestamp >= epochData[currentEpochNumber].epochStart + epochDuration)
+            || (expirationEpoch != 0 && currentEpochNumber > expirationEpoch);
+    }
+
+    /**
+     * @notice Returns the payout numerator for a specific outcome in the previous epoch
+     * @param i Index of the outcome
+     * @return The payout numerator
+     */
+    function payoutNumerators(uint256 epoch, uint256 i) external view returns (uint256) {
+        return epochData[epoch].payoutNumerators[i];
+    }
+
+    /**
+     * @notice Returns the payout denominator for the previous epoch
+     * @return The payout denominator
+     */
+    function payoutDenominator(uint256 epoch) external view returns (uint256) {
+        return epochData[epoch].payoutDenominator;
+    }
+
+    /**
+     * @notice Returns the supply for a specific outcome token in the current epoch
+     * @param epoch Epoch number
+     * @param period Period number
+     * @param outcomeSlot Index of the outcome
+     * @return The token supply
+     */
+    function outcomeTokenSupplies(uint256 epoch, uint256 period, uint256 outcomeSlot) public view returns (uint256) {
+        return totalSupply(shareId(epoch, period, outcomeSlot));
+    }
+
+    /**
+     * @notice Returns the supply for an outcome token per epoch
+     * @param epoch Epoch number
+     * @param outcomeSlot Outcome slot number
+     * @return The supply for the outcome token per epoch
+     */
+    function outcomeTokenSuppliesPerEpoch(uint256 epoch, uint256 outcomeSlot) public view returns (uint256) {
+        uint256 amount = 0;
+        for (uint256 j = 1; j <= currentPeriodNumber; j++) {
+            amount += totalSupply(shareId(epoch, j, outcomeSlot));
+        }
+        return amount;
+    }
+
+    /**
+     * @notice Changes the expiration epoch
+     * @param newExpirationEpoch The new expiration epoch
+     * @dev Only callable by owner. Emits ExpirationEpochChanged event.
+     */
+    function changeExpirationEpoch(uint32 newExpirationEpoch) public onlyOwner {
+        if (
+            (newExpirationEpoch < currentEpochNumber && newExpirationEpoch != 0) || currentEpochNumber > expirationEpoch
+        ) {
+            revert NewExpirationEpochMustBeGreaterThanCurrentEpoch(newExpirationEpoch, currentEpochNumber);
+        }
+        expirationEpoch = newExpirationEpoch;
+        emit ExpirationEpochChanged(newExpirationEpoch, block.timestamp);
+    }
+
+    /**
+     * @notice Changes the fee rate
+     * @param _fee The new fee rate in basis points
+     * @dev Only callable by owner. Emits FeeChanged event.
+     */
+    function changeFee(uint64 _fee) external onlyOwner {
+        if (_fee >= RANGE) {
+            revert FeeMustBeLessThanRange(_fee, RANGE);
+        }
+        fee = _fee;
+        emit FeeChanged(block.timestamp, _fee);
+    }
+
+    /**
+     * @notice Withdraws accumulated fees to the owner
+     * @dev Only callable by owner. Emits FeeWithdrawal event.
+     */
+    function withdrawFee() external onlyOwner {
+        if (feeReceived == 0) {
+            revert InsufficientBalance(0, feeReceived);
+        }
+        uint256 amount = feeReceived;
+        feeReceived = 0;
+        IERC20(collateralToken).safeTransfer(owner(), amount);
+        emit FeeWithdrawal(block.timestamp, amount);
+    }
+
+    // ============ Internal Functions ============
+
+    /**
+     * @notice Validates that user has enough shares to sell
+     * @param deltaOutcomeAmounts_ Array of token amount changes
+     * @dev Reverts if user does not have enough shares
+     */
+    function _validateSellAmounts(int256[] memory deltaOutcomeAmounts_, bool isRollover) private view {
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
+            if (deltaOutcomeAmounts_[i] < 0) {
+                uint256 balance = balanceOf(msg.sender, id);
+                if (isRollover) {
+                    balance = blockedForUser[msg.sender][id];
+                }
+                uint256 amount = uint256(-deltaOutcomeAmounts_[i]);
+                if (balance < amount) {
+                    revert InsufficientBalance(balance, amount);
+                }
+            }
+        }
+    }
+
+    /**
+     * @notice Handles payment processing for trades including fee calculation
+     * @param netCost The net cost of the trade
+     * @param isBuy True if the user is buying, false if selling
+     * @return feeAmount The fee amount charged
+     */
+    function _handleTradePayment(uint256 netCost, bool isBuy) private returns (uint256 feeAmount) {
+        if (isBuy) {
+            uint256 shouldPay = (netCost * RANGE) / (RANGE - fee);
+            feeAmount = shouldPay - netCost;
+            feeReceived += feeAmount;
+            epochData[currentEpochNumber].funding += shouldPay;
+            IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), shouldPay);
+        } else {
+            feeAmount = (netCost * fee) / RANGE;
+            feeReceived += feeAmount;
+            uint256 payoutAmount = netCost - feeAmount;
+            epochData[currentEpochNumber].funding -= payoutAmount;
+            IERC20(collateralToken).safeTransfer(msg.sender, payoutAmount);
+        }
+    }
+
+    /**
+     * @notice Updates user shares for each outcome
+     * @param user Address of the user
+     * @param deltaOutcomeAmounts_ Array of token amount changes
+     * @param isRollover Whether this is a rollover trade
+     * @dev Mints or burns outcome tokens as needed
+     */
+    function _updateUserShares(address user, int256[] memory deltaOutcomeAmounts_, bool isRollover) private {
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
+            if (deltaOutcomeAmounts_[i] > 0) {
+                if (isRollover) {
+                    blockedForUser[user][id] += uint256(deltaOutcomeAmounts_[i]);
+                    blockedForEpoch[id] += uint256(deltaOutcomeAmounts_[i]);
+                    _mintToken(address(this), uint256(deltaOutcomeAmounts_[i]), id);
+                } else {
+                    _mintToken(user, uint256(deltaOutcomeAmounts_[i]), id);
+                }
+            } else if (deltaOutcomeAmounts_[i] < 0) {
+                if (isRollover) {
+                    blockedForUser[user][id] -= uint256(-deltaOutcomeAmounts_[i]);
+                    blockedForEpoch[id] -= uint256(-deltaOutcomeAmounts_[i]);
+                    _burnToken(address(this), uint256(-deltaOutcomeAmounts_[i]), id);
+                } else {
+                    _burnToken(user, uint256(-deltaOutcomeAmounts_[i]), id);
+                }
+            }
+        }
+    }
+
+    function _closeEpoch(uint256[] calldata payouts) private {
+        uint256 _outcomeSlotCount = payouts.length;
+        uint256 totalPayout;
+        uint256 totalPayoutRollover;
+
+        // Validate payout array length
+        if (_outcomeSlotCount != outcomeSlotCount) {
+            revert InvalidLength(_outcomeSlotCount, outcomeSlotCount);
+        }
+
+        // Calculate payout denominator
+        uint256 payoutDenominator_ = _calculatePayoutDenominator(payouts);
+        if (payoutDenominator_ == 0) {
+            revert PayoutIsAllZeroes();
+        }
+
+        epochData[currentEpochNumber].payoutDenominator = payoutDenominator_;
+
+        uint256[] memory totalWeightedShares = new uint256[](_outcomeSlotCount);
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
+            epochData[currentEpochNumber].basePrice[i] = (payouts[i] * uint256(decCollateral)) / payoutDenominator_;
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                uint256 outcomeTokenAmountI = outcomeTokenSupplies(currentEpochNumber, j, i);
+                if (outcomeTokenAmountI != 0) {
+                    totalWeightedShares[i] += ((outcomeTokenAmountI * gammaPow[j - 1]) / RANGE);
+                }
+                uint256 tokenId = shareId(currentEpochNumber, j, i);
+                uint256 balance = blockedForEpoch[tokenId];
+                if (balance > 0) {
+                    totalPayoutRollover += (
+                        (balance * gammaPow[j - 1] * epochData[currentEpochNumber].basePrice[i] / uint256(decQ)) / RANGE
+                    );
+                }
+            }
+            if (totalWeightedShares[i] != 0) {
+                totalPayout += (
+                    (
+                        (totalWeightedShares[i] - epochData[currentEpochNumber].initialTokenSupply[i]) * payouts[i]
+                            * uint256(decCollateral)
+                    ) / payoutDenominator_ / uint256(decQ)
+                );
+            }
+            epochData[currentEpochNumber + 1].initialTokenSupply[i] = epochData[currentEpochNumber].basePrice[i]
+                * (epochData[currentEpochNumber].funding + totalPayoutRollover - totalPayout) / uint256(decCollateral);
+            uint256 newTokenId = shareId(currentEpochNumber + 1, 1, i);
+            _mint(address(this), newTokenId, epochData[currentEpochNumber + 1].initialTokenSupply[i], "");
+            blockedForEpoch[newTokenId] += totalPayoutRollover / epochData[currentEpochNumber].basePrice[i];
+        }
+
+        uint32 now32 = uint32(block.timestamp);
+        epochData[currentEpochNumber].fundingForRollover = totalPayoutRollover;
+        currentEpochNumber += 1;
+        currentPeriodNumber = 1;
+        epochData[currentEpochNumber].epochStart = now32;
+        epochData[currentEpochNumber].funding =
+            epochData[currentEpochNumber - 1].funding + totalPayoutRollover - totalPayout;
+
+        periodStart = now32;
+    }
+
+    /**
+     * @notice Burns tokens from a user
+     * @param from Address to burn from
+     * @param burnAmount Amount to burn
+     * @param id The token id
+     * @dev Emits TokenBurned event
+     */
+    function _burnToken(address from, uint256 burnAmount, uint256 id) internal {
+        _burn(from, id, burnAmount);
+        emit TokenBurned(from, id, burnAmount);
+    }
+
+    /**
+     * @notice Mints tokens to a user
+     * @param to Address to mint to
+     * @param mintAmount Amount to mint
+     * @param id The token id
+     * @dev Emits TokenMinted event
+     */
+    function _mintToken(address to, uint256 mintAmount, uint256 id) internal {
+        _mint(to, id, mintAmount, "");
+        emit TokenMinted(to, id, mintAmount);
+    }
+
+    /**
+     * @notice Calculates the payout denominator from payout numerators
+     * @param payouts Array of payout numerators
+     * @return denominator The calculated denominator
+     */
+    function _calculatePayoutDenominator(uint256[] calldata payouts) private pure returns (uint256 denominator) {
+        for (uint256 i = 0; i < payouts.length; i++) {
+            denominator += payouts[i];
+        }
+    }
+
+    /**
+     * @notice Updates the current epoch and period based on elapsed time
+     * @dev Automatically advances epochs and periods as time passes
+     */
+    function _updateEpochAndPeriod() private {
+        uint32 now32 = uint32(block.timestamp);
+
+        // Check if epoch should advance
+        if (now32 >= epochData[currentEpochNumber].epochStart + epochDuration) {
+            revert EpochFinishedButNotResolvedYet(currentEpochNumber);
+        }
+
+        if (now32 < periodStart + periodDuration) return;
+
+        uint32 steps = (now32 - periodStart) / periodDuration; // >=1
+
+        uint32 periodsPerEpoch = epochDuration / periodDuration;
+        uint32 target = currentPeriodNumber + steps;
+        if (target > periodsPerEpoch) {
+            target = periodsPerEpoch;
+        }
+
+        uint32 newStart = periodStart + (target - currentPeriodNumber) * periodDuration;
+
+        currentPeriodNumber = target;
+        periodStart = newStart;
+        emit EpochAndPeriodUpdated(currentEpochNumber, currentPeriodNumber);
+    }
+
+    /**
+     * @notice Sends remaining market shares to the owner after resolution
+     * @dev Emits SendMarketsSharesToOwner event
+     */
+    function _sendMarketsSharesToOwner() private {
+        uint256 balance = epochData[currentEpochNumber].funding;
+        if (IERC20(collateralToken).balanceOf(address(this)) < balance) {
+            revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), balance);
+        }
+        uint256 returnToOwner = balance;
+        IERC20(collateralToken).safeTransfer(owner(), returnToOwner);
+        emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
+    }
+
+    // ============ Override Functions ============
+
+    /**
+     * @notice Checks if the contract supports a specific interface
+     * @param interfaceId The interface identifier
+     * @return True if the interface is supported
+     */
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC1155HolderUpgradeable, ERC1155Upgradeable)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+
+    /**
+     * @notice Calculates the unique share ID for (epoch, period, outcome)
+     * @param epoch Epoch number
+     * @param period Period number
+     * @param outcome Outcome index
+     * @return The unique share ID
+     * @dev Uses a hierarchical ID system: epoch * periodsPerEpoch * outcomeSlotCount + period * outcomeSlotCount + outcome
+     */
+    function shareId(uint256 epoch, uint256 period, uint256 outcome) public view returns (uint256) {
+        uint256 e = epoch - 1;
+        uint256 p = period - 1;
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        uint256 epochOffset = e * periodsPerEpoch * outcomeSlotCount;
+        uint256 periodOffset = p * outcomeSlotCount;
+        return epochOffset + periodOffset + outcome;
+    }
+
+    /**
+     * @notice Decodes a share ID back into epoch, period, and outcome
+     * @param id The share ID to decode
+     * @return epoch Epoch number
+     * @return period Period number
+     * @return outcome Outcome index
+     * @dev Inverse function of shareId(). The decoding is unambiguous.
+     */
+    function decodeShareId(uint256 id) public view returns (uint256 epoch, uint256 period, uint256 outcome) {
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+
+        // Decode outcome: id % outcomeSlotCount
+        outcome = id % outcomeSlotCount;
+
+        // Decode period and epoch from periodOffset
+        // periodOffset = (epoch - 1) * periodsPerEpoch * outcomeSlotCount + (period - 1) * outcomeSlotCount
+        uint256 periodOffset = id - outcome;
+        uint256 periodIndex = periodOffset / outcomeSlotCount;
+
+        // Decode period: periodIndex % periodsPerEpoch
+        period = (periodIndex % periodsPerEpoch) + 1; // Convert to 1-based
+
+        // Decode epoch: periodIndex / periodsPerEpoch
+        epoch = (periodIndex / periodsPerEpoch) + 1; // Convert to 1-based
+    }
 
     /**
      * @notice Initializes gamma powers for time-weighted rewards
@@ -201,78 +799,12 @@ contract Dynamica is MarketMaker {
      * @dev Sets up decreasing multipliers for later periods to incentivize early predictions
      */
     function _initializeGammaPowers(uint32 gamma) internal {
-        gammaPow = new uint32[](PERIOD_NUMBER);
-        gammaPow[0] = RANGE; // First period gets full reward
+        uint32 periodNumber = epochDuration / periodDuration;
+        gammaPow = new uint32[](periodNumber);
+        gammaPow[0] = RANGE;
 
-        for (uint32 i = 1; i < PERIOD_NUMBER; i++) {
+        for (uint32 i = 1; i < periodNumber; i++) {
             gammaPow[i] = (gammaPow[i - 1] * gamma) / RANGE;
         }
-    }
-
-    /**
-     * @notice Calculates the liquidity parameter b = α * Σ(q_i)
-     * @param q Array of outcome token amounts in fixed-point format
-     * @return b The liquidity parameter
-     * @dev The liquidity parameter controls market depth and price sensitivity
-     */
-    function getB(SD59x18[] memory q) internal view returns (SD59x18 b) {
-        SD59x18 sum = sd(0);
-        for (uint256 i = 0; i < q.length; i++) {
-            sum = sum.add(q[i]);
-        }
-        b = sum.mul(alpha);
-        // Ensure b is never zero to prevent division by zero
-        b = b == sd(0) ? sd(1) : b;
-    }
-
-    /**
-     * @notice Calculates the exponential sum and offset for numerical stability
-     * @param q Array of normalized outcome amounts
-     * @param b Liquidity parameter
-     * @return sum The sum of exponentials
-     * @return offset The offset used for numerical stability
-     * @dev Uses offset to prevent overflow in exponential calculations
-     */
-    function sumExp(SD59x18[] memory q, SD59x18 b) internal view returns (SD59x18 sum, SD59x18 offset) {
-        uint256 n = q.length;
-        SD59x18[] memory z = new SD59x18[](n);
-
-        // Normalize quantities by dividing by b
-        for (uint256 i = 0; i < n; i++) {
-            z[i] = q[i].div(b);
-        }
-
-        // Find maximum value for offset calculation
-        offset = z[0];
-        for (uint256 i = 1; i < n; i++) {
-            if (z[i].unwrap() > offset.unwrap()) {
-                offset = z[i];
-            }
-        }
-
-        // Apply exponential limit offset for numerical stability
-        offset = offset.sub(expLimitDec);
-
-        // Calculate sum of exponentials with offset
-        sum = sd(0);
-        for (uint256 i = 0; i < n; i++) {
-            sum = sum.add(exp(z[i].sub(offset)));
-        }
-    }
-
-    /**
-     * @notice Computes the offset for numerical stability in exponential calculations
-     * @param z Array of normalized outcome amounts
-     * @return The offset value to prevent overflow
-     * @dev Subtracts expLimitDec from the maximum value to prevent overflow
-     */
-    function _computeOffset(SD59x18[] memory z) private view returns (SD59x18) {
-        SD59x18 maxZ = z[0];
-        for (uint256 i = 1; i < z.length; i++) {
-            if (z[i].unwrap() > maxZ.unwrap()) {
-                maxZ = z[i];
-            }
-        }
-        return maxZ.sub(expLimitDec);
     }
 }

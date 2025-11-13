@@ -1,27 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {IERC20} from "../src/interfaces/IERC20.sol";
-import {MockToken} from "./MockToken.sol";
+import {MockToken, IERC20} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
-import {DynamicaFactory} from "../src/MarketMakerFactory.sol";
+import {DynamicaFactory} from "../src/DynamicaFactory.sol";
+import {IDynamicaFactory} from "../src/interfaces/IDynamicaFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
-import {FTSOResolutionModule} from "../src/Oracles/Flare/FTSOResolutionModule.sol";
 import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
 import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
+import {LMSRMath} from "../src/LMSRMath.sol";
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 /**
  * @title DynamicaRevertTests
  * @dev Comprehensive test suite for all revert and require conditions in Dynamica contracts
  * @notice Tests all error conditions, access controls, and validation checks
  */
+
 contract DynamicaRevertTests is OracleSetUP {
     // ============ State Variables ============
 
     address public constant OWNER = address(0xABCD);
-
 
     uint8 constant DECIMALS = 10;
     uint8 constant DECIMALS_COLLATERAL = 10;
@@ -46,8 +46,8 @@ contract DynamicaRevertTests is OracleSetUP {
     /// @notice Chainlink resolution module implementation address
     address public implementationResolutionModuleChainlink;
 
-    /// @notice FTSO resolution module implementation address
-    address public implementationResolutionModuleFtso; 
+    /// @notice LMSR math contract
+    LMSRMath public lmsrMathExternal;
 
     // ============ Test Addresses ============
 
@@ -62,7 +62,7 @@ contract DynamicaRevertTests is OracleSetUP {
 
     // ============ Setup Function ============
 
-    function createToken(string memory name1, string memory symbol2) public payable {
+    function createToken(string memory /* name1 */, string memory /* symbol2 */) public payable {
         mockToken = address(new MockToken(DECIMALS_COLLATERAL));   
     }
 
@@ -101,46 +101,36 @@ contract DynamicaRevertTests is OracleSetUP {
 
     function testFactoryConstructorReverts() public {
         // Test invalid implementation addresses
-        vm.expectRevert("Invalid implementation");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidImplementation.selector));
         new DynamicaFactory(
             address(0), // Invalid market maker implementation
             implementationResolutionModuleChainlink,
-            implementationResolutionModuleFtso,
-            address(ftsoV2),
-            OWNER
+            OWNER,
+            address(lmsrMathExternal)
         );
 
-        vm.expectRevert("Invalid implementation resolution module chainlink");
+        vm.expectRevert(
+            abi.encodeWithSelector(IDynamicaFactory.InvalidImplementationResolutionModuleChainlink.selector)
+        );
         new DynamicaFactory(
             address(implementation),
             address(0), // Invalid Chainlink implementation
-            implementationResolutionModuleFtso,
-            address(ftsoV2),
-            OWNER
+            OWNER,
+            address(lmsrMathExternal)
         );
 
-        vm.expectRevert("Invalid implementation resolution module ftso");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidLMSRMathAddress.selector));
         new DynamicaFactory(
             address(implementation),
             implementationResolutionModuleChainlink,
-            address(0), // Invalid FTSO implementation
-            address(ftsoV2),
-            OWNER
-        );
-
-        vm.expectRevert("Invalid FTSO V2 address");
-        new DynamicaFactory(
-            address(implementation),
-            implementationResolutionModuleChainlink,
-            implementationResolutionModuleFtso,
-            address(0), // Invalid FTSO V2 address
-            OWNER
+            OWNER,
+            address(0) // Invalid LMSR math address
         );
     }
 
     function testFactorySetOracleCoordinatorReverts() public {
         vm.startPrank(OWNER);
-        vm.expectRevert("Invalid oracle coordinator");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidOracleCoordinator.selector));
         factory.setOracleCoordinator(address(0));
         vm.stopPrank();
 
@@ -151,12 +141,42 @@ contract DynamicaRevertTests is OracleSetUP {
     }
 
     function testFactoryCreateMarketMakerReverts() public {
-        vm.startPrank(OWNER);
-
         ChainlinkResolutionModule.ChainlinkConfig memory chainlinkConfig = _prepareChainlinkConfig();
 
+        // Test not authorized market creator
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.NotAuthorizedMarketCreator.selector, trader0));
+        vm.prank(trader0);
+        factory.createMarketMaker(
+            IDynamica.Config({
+                owner: OWNER,
+                collateralToken: address(mockToken),
+                oracle: oracle,
+                question: "eth/btc",
+                outcomeSlotCount: 2,
+                startFunding: START_FUNDING,
+                outcomeTokenAmounts: INITIAL_SUPPLY,
+                fee: 0,
+                alpha: 3,
+                expLimit: 12750,
+                decimals: DECIMALS,
+                expirationEpoch: 2,
+                gamma: 9000,
+                epochDuration: 10 days,
+                periodDuration: 1 days
+            }),
+            IMarketResolutionModule.MarketResolutionConfig({
+                marketMaker: address(0),
+                outcomeSlotCount: 2,
+                resolutionModule: address(0),
+                resolutionData: abi.encode(chainlinkConfig),
+                isResolved: false,
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
+            })
+        );
+
+        vm.startPrank(OWNER);
         // Test invalid collateral token
-        vm.expectRevert("Invalid collateral token");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidCollateralToken.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -177,18 +197,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test invalid owner
-        vm.expectRevert("Invalid owner");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidOwner.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: address(0),
@@ -209,18 +227,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test fee too high
-        vm.expectRevert("Fee too high");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.FeeTooHigh.selector, 10001, 10000));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -241,18 +257,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test zero funding
-        vm.expectRevert("Funding must be positive");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.FundingMustBePositive.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -273,18 +287,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test single outcome
-        vm.expectRevert("Must have more than one outcome");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.MustHaveMoreThanOneOutcome.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -305,18 +317,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test zero outcome token amounts
-        vm.expectRevert("Outcome token amounts must be positive");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.OutcomeTokenAmountsMustBePositive.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -337,18 +347,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test empty question
-        vm.expectRevert("Question cannot be empty");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.QuestionCannotBeEmpty.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -369,18 +377,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test zero alpha
-        vm.expectRevert("Alpha must be positive");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.AlphaMustBePositive.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -401,18 +407,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test zero exp limit
-        vm.expectRevert("Exp limit must be positive");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.ExpLimitMustBePositive.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -433,18 +437,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test decimals too low
-        vm.expectRevert("Decimals must be at least 8");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.DecimalsMustBeAtLeast8.selector, 7));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -465,18 +467,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test invalid gamma
-        vm.expectRevert("Invalid gamma value");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.InvalidGammaValue.selector, 0, 10000));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -497,18 +497,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test epoch duration <= period duration
-        vm.expectRevert("Epoch duration must be greater than period duration");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.EpochDurationMustBeGreaterThanPeriodDuration.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -529,18 +527,16 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
 
         // Test zero period duration
-        vm.expectRevert("Period duration must be greater than 0");
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.PeriodDurationMustBeGreaterThan0.selector));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -561,24 +557,21 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
-        vm.stopPrank();
 
-
-        vm.startPrank(trader0);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, trader0));
+        // Test collateral token not allowed
+        address unallowedToken = address(new MockToken(DECIMALS_COLLATERAL));
+        vm.expectRevert(abi.encodeWithSelector(IDynamicaFactory.CollateralTokenNotAllowed.selector, unallowedToken));
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
-                collateralToken: address(mockToken),
+                collateralToken: unallowedToken,
                 oracle: oracle,
                 question: "eth/btc",
                 outcomeSlotCount: 2,
@@ -591,36 +584,21 @@ contract DynamicaRevertTests is OracleSetUP {
                 expirationEpoch: 2,
                 gamma: 9000,
                 epochDuration: 10 days,
-                periodDuration: 0
+                periodDuration: 1 days
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
         vm.stopPrank();
     }
 
     // ============ Dynamica Revert Tests ============
-
-    function testDynamicaCalcMarginalPriceReverts() public {
-        // Test invalid outcome index
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.InvalidOutcomeIndex.selector, 2, 2));
-        marketMaker.calcMarginalPrice(2);
-    }
-
-    function testDynamicaCalcNetCostReverts() public {
-        // Test invalid delta outcome amounts length
-        int256[] memory invalidAmounts = new int256[](3);
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.InvalidDeltaOutcomeAmountsLength.selector, 3, 2));
-        marketMaker.calcNetCost(invalidAmounts);
-    }
 
     // ============ MarketMaker Revert Tests ============
 
@@ -631,9 +609,9 @@ contract DynamicaRevertTests is OracleSetUP {
 
         // Test invalid delta outcome amounts length
         int256[] memory invalidAmounts = new int256[](3);
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.InvalidDeltaOutcomeAmountsLength.selector, 3, 2));
+        vm.expectRevert(abi.encodeWithSelector(IDynamica.InvalidLength.selector, 3, 2));
         vm.prank(trader0);
-        marketMaker.makePrediction(invalidAmounts);
+        marketMaker.makePrediction(invalidAmounts, false);
 
         // Test market already resolved
         vm.warp(block.timestamp + 10 days + 1);
@@ -643,12 +621,12 @@ contract DynamicaRevertTests is OracleSetUP {
         vm.warp(block.timestamp + 10 days + 1);
         vm.prank(OWNER);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-        
+
         // Test market expired
         vm.warp(block.timestamp + 2 days + 1);
         vm.expectRevert(abi.encodeWithSelector(IDynamica.MarketExpired.selector));
         vm.prank(trader0);
-        marketMaker.makePrediction(amounts);
+        marketMaker.makePrediction(amounts, false);
     }
 
     function testMarketMakerRedeemPayoutReverts() public {
@@ -661,7 +639,7 @@ contract DynamicaRevertTests is OracleSetUP {
         vm.warp(block.timestamp + 10 days + 1);
         vm.prank(OWNER);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-        
+
         vm.expectRevert(abi.encodeWithSelector(IDynamica.NothingToRedeem.selector));
         vm.prank(trader0);
         marketMaker.redeemPayout(1);
@@ -672,11 +650,12 @@ contract DynamicaRevertTests is OracleSetUP {
         vm.warp(block.timestamp + 10 days);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
         // Test revert condition - covers lines 196-198
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.NewExpirationEpochMustBeGreaterThanCurrentEpoch.selector, 1, 2));
+        vm.expectRevert(
+            abi.encodeWithSelector(IDynamica.NewExpirationEpochMustBeGreaterThanCurrentEpoch.selector, 1, 2)
+        );
         marketMaker.changeExpirationEpoch(1);
         vm.stopPrank();
     }
-
 
     function testMarketMakerChangeFeeReverts() public {
         // Test fee too high
@@ -686,8 +665,8 @@ contract DynamicaRevertTests is OracleSetUP {
     }
 
     function testMarketMakerWithdrawFeeReverts() public {
-        // Test no fees to withdraw
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.NoFeesToWithdraw.selector));
+        // Test no fees to withdraw (should revert with InsufficientBalance)
+        vm.expectRevert(abi.encodeWithSelector(IDynamica.InsufficientBalance.selector, 0, 0));
         vm.prank(OWNER);
         marketMaker.withdrawFee();
     }
@@ -697,10 +676,10 @@ contract DynamicaRevertTests is OracleSetUP {
         int256[] memory amounts = new int256[](2);
         amounts[0] = -1000 * int256(10 ** DECIMALS); // Trying to sell more than owned
         amounts[1] = 0;
-        
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.InsufficientSharesToSell.selector, trader0, 1000 * 10 ** DECIMALS, 0));
+
+        vm.expectRevert(abi.encodeWithSelector(IDynamica.InsufficientBalance.selector, 0, 1000 * 10 ** DECIMALS));
         vm.prank(trader0);
-        marketMaker.makePrediction(amounts);
+        marketMaker.makePrediction(amounts, false);
     }
 
     function testMarketMakerUpdateEpochAndPeriodReverts() public {
@@ -719,7 +698,7 @@ contract DynamicaRevertTests is OracleSetUP {
 
         // Test must have exactly outcome slot count
         uint256[] memory invalidPayouts = new uint256[](3);
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.MustHaveExactlyOutcomeSlotCount.selector, 3, 2));
+        vm.expectRevert(abi.encodeWithSelector(IDynamica.InvalidLength.selector, 3, 2));
         vm.prank(address(marketResolutionManager));
         marketMaker.closeEpoch(invalidPayouts);
 
@@ -742,7 +721,7 @@ contract DynamicaRevertTests is OracleSetUP {
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
     }
 
-   /* function testMarketResolutionManagerRegisterMarketReverts() public {
+    /* function testMarketResolutionManagerRegisterMarketReverts() public {
         // Test market already registered
         //vm.prank(OWNER);
         //vm.expectRevert("Only factory can call this function");
@@ -847,25 +826,6 @@ contract DynamicaRevertTests is OracleSetUP {
         );
     }*/
 
-    // ============ FTSOResolutionModule Revert Tests ============
-
-   /* function testFTSOResolutionModuleConstructorReverts() public {
-        vm.expectRevert("Invalid FTSO address");
-        new FTSOResolutionModule();
-    }
-
-    function testFTSOResolutionModuleResolveReverts() public {
-        // Test only market resolution manager can call
-        vm.expectRevert("Only market resolution manager can call this function");
-        vm.prank(trader0);
-        FTSOResolutionModule(implementationResolutionModuleFTSO).resolveMarket(
-            2,
-            abi.encode(bytes32(0), new uint256[](2))
-        );
-    }
-
-    */
-
     // ============ Private Setup Functions ============
 
     function _setupMockToken() private {
@@ -876,18 +836,14 @@ contract DynamicaRevertTests is OracleSetUP {
     function _deployImplementations() private {
         implementation = new Dynamica();
         implementationResolutionModuleChainlink = address(new ChainlinkResolutionModule());
-        implementationResolutionModuleFtso = address(new FTSOResolutionModule());
+        lmsrMathExternal = new LMSRMath();
     }
 
     function _setupFactory() private {
         factory = new DynamicaFactory(
-            address(implementation),
-            implementationResolutionModuleChainlink,
-            implementationResolutionModuleFtso,
-            address(ftsoV2),
-            OWNER
+            address(implementation), implementationResolutionModuleChainlink, OWNER, address(lmsrMathExternal)
         );
-        factory.setAllowedToken(address(mockToken), true);
+        factory.addAllowedCollateralToken(address(mockToken));
     }
 
     function _setupMarketResolutionManager() private {
@@ -918,13 +874,11 @@ contract DynamicaRevertTests is OracleSetUP {
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
-                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK,
-                minPrice: 0,
-                maxPrice: 0
+                resolutionModuleType: IMarketResolutionModule.ResolutionModule.CHAINLINK
             })
         );
         marketMaker = Dynamica(payable(factory.marketMakers(0)));
@@ -943,7 +897,11 @@ contract DynamicaRevertTests is OracleSetUP {
         decimals[0] = ethUsdAggregator.decimals();
         decimals[1] = btcUsdAggregator.decimals();
 
-        config = ChainlinkResolutionModule.ChainlinkConfig({priceFeedAddresses: priceFeedAddresses, staleness: staleness, decimals: decimals});
+        config = ChainlinkResolutionModule.ChainlinkConfig({
+            priceFeedAddresses: priceFeedAddresses,
+            staleness: staleness,
+            decimals: decimals
+        });
     }
 
     function _mintTokensToTraders() private {
@@ -952,4 +910,4 @@ contract DynamicaRevertTests is OracleSetUP {
         IERC20(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         IERC20(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
-} 
+}

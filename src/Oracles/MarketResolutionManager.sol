@@ -4,8 +4,6 @@ pragma solidity ^0.8.25;
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
 import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
-import {ReentrancyGuard} from "@openzeppelin-contracts/utils/ReentrancyGuard.sol";
-import {console} from "forge-std/src/console.sol";
 
 /**
  * @title MarketResolutionManager
@@ -18,7 +16,7 @@ import {console} from "forge-std/src/console.sol";
  * - Market resolution through configured modules
  * - Centralized tracking of market states
  */
-contract MarketResolutionManager is Ownable, ReentrancyGuard  {
+contract MarketResolutionManager is Ownable {
     // ============ State Variables ============
 
     /// @notice Address of the factory contract that can register markets
@@ -26,6 +24,18 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
 
     /// @notice Mapping from question ID to market resolution configuration
     mapping(bytes32 => IMarketResolutionModule.MarketResolutionConfig) public marketConfigs;
+
+    // ============ Structs ============
+
+    /**
+     * @notice Chainlink configuration structure for resolution data validation
+     * @dev Must match ChainlinkResolutionModule.ChainlinkConfig structure
+     */
+    struct ChainlinkConfig {
+        address[] priceFeedAddresses;
+        uint256[] staleness;
+        uint8[] decimals;
+    }
 
     // ============ Events ============
 
@@ -40,6 +50,11 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
     /// @notice Ensures only the factory contract can call the function
     modifier onlyFactory() {
         require(msg.sender == factory, "Only factory can call this function");
+        _;
+    }
+
+    modifier onlyWhenExpired(uint32 expirationEpoch) {
+        require(block.timestamp > expirationEpoch, "Market not expired");
         _;
     }
 
@@ -73,21 +88,18 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
         uint256 outcomeSlotCount,
         address resolutionModule,
         IMarketResolutionModule.ResolutionModule resolutionModuleType,
-        bytes calldata resolutionData,
-        uint256[] calldata interval
+        bytes calldata resolutionData
     ) external onlyFactory {
         _validateMarketRegistration(questionId, marketMaker, outcomeSlotCount, resolutionModule);
-        uint256 len = interval.length;
+        _validateResolutionData(resolutionModuleType, resolutionData, outcomeSlotCount);
 
         marketConfigs[questionId] = IMarketResolutionModule.MarketResolutionConfig(
             marketMaker,
             outcomeSlotCount,
             resolutionModule,
             resolutionData,
-            false, 
-            resolutionModuleType,
-            len > 0 ? interval[0] : 0,
-            len > 0 ? interval[1] : 0
+            false, // isResolve
+            resolutionModuleType
         );
 
         emit MarketRegistered(questionId, marketMaker, resolutionModule);
@@ -99,11 +111,7 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
      * @dev Only callable by the owner. Calls the resolution module and passes
      * the result to the MarketMaker contract
      */
-    function resolveMarket(bytes32 questionId)
-        external
-        nonReentrant
-        onlyOwner
-    {        
+    function resolveMarket(bytes32 questionId) external onlyOwner {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
         require(IDynamica(config.marketMaker).checkEpoch(), "Last epoch isn't finished yet");
 
@@ -118,15 +126,11 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
         emit MarketResolved(questionId, payouts);
     }
 
-    function getCurrentMarketData(bytes32 questionId)
-        external
-        returns (uint256[] memory payouts)
-    {
+    function getCurrentMarketData(bytes32 questionId) external returns (uint256[] memory payouts) {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
         _validateMarketResolution(config);
         payouts = _getMarketPayouts(config);
     }
-
 
     // ============ Private Functions ============
 
@@ -153,11 +157,50 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
      * @notice Validates that a market can be resolved
      * @param config The market resolution configuration
      */
-    function _validateMarketResolution(
-        IMarketResolutionModule.MarketResolutionConfig storage config
-    ) private view {
+    function _validateMarketResolution(IMarketResolutionModule.MarketResolutionConfig storage config) private view {
         require(config.marketMaker != address(0), "Market not registered");
         require(!config.isResolved, "Market already resolved");
+    }
+
+    /**
+     * @notice Validates resolution data based on the resolution module type
+     * @param resolutionModuleType Type of resolution module
+     * @param resolutionData Encoded resolution data to validate
+     * @param outcomeSlotCount Expected number of outcomes
+     */
+    function _validateResolutionData(
+        IMarketResolutionModule.ResolutionModule resolutionModuleType,
+        bytes calldata resolutionData,
+        uint256 outcomeSlotCount
+    ) private pure {
+        if (resolutionModuleType == IMarketResolutionModule.ResolutionModule.CHAINLINK) {
+            _validateChainlinkResolutionData(resolutionData, outcomeSlotCount);
+        }
+        // Add validation for other module types as needed
+    }
+
+    /**
+     * @notice Validates Chainlink resolution data structure
+     * @param resolutionData Encoded ChainlinkConfig to validate
+     * @param outcomeSlotCount Expected number of outcomes
+     * @dev Uses the same ChainlinkConfig structure as ChainlinkResolutionModule
+     */
+    function _validateChainlinkResolutionData(bytes calldata resolutionData, uint256 outcomeSlotCount) private pure {
+        // Decode the configuration data
+        // This will revert if the data format is invalid
+        ChainlinkConfig memory config = abi.decode(resolutionData, (ChainlinkConfig));
+
+        // Validate array lengths match outcomeSlotCount
+        require(config.priceFeedAddresses.length == outcomeSlotCount, "Price feed addresses length mismatch");
+        require(config.staleness.length == outcomeSlotCount, "Staleness array length mismatch");
+        require(config.decimals.length == outcomeSlotCount, "Decimals array length mismatch");
+
+        // Validate each price feed address is not zero
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            require(config.priceFeedAddresses[i] != address(0), "Invalid price feed address");
+            require(config.staleness[i] > 0, "Staleness must be positive");
+            require(config.decimals[i] <= 18, "Decimals must be <= 18");
+        }
     }
 
     /**
@@ -169,30 +212,8 @@ contract MarketResolutionManager is Ownable, ReentrancyGuard  {
         private
         returns (uint256[] memory payouts)
     {
-        console.log("_getMarketPayouts");
-        uint256[] memory prices;
-        prices = IMarketResolutionModule(config.resolutionModule).resolveMarket(
-            config.outcomeSlotCount,
-            config.resolutionData
+        payouts = IMarketResolutionModule(config.resolutionModule).resolveMarket(
+            config.outcomeSlotCount, config.resolutionData
         );
-        if(prices.length == 1) {
-            payouts = new uint256[](2);
-            uint256 scale = 1e18;
-            if(prices[0] < config.minPrice) {
-                prices[0] = config.minPrice;
-            } else if(prices[0] > config.maxPrice) {
-                prices[0] = config.maxPrice;
-            } 
-            payouts[1] = (prices[0] - config.minPrice) * scale / (config.maxPrice - config.minPrice);
-            payouts[0] = scale - payouts[1];
-            console.log("payouts[0]", payouts[0]);
-            console.log("payouts[1]", payouts[1]);
-        } else {
-            payouts = new uint256[](prices.length);
-            for(uint256 i = 0; i < prices.length; i++) {
-                payouts[i] = prices[i];
-            }
-        }
-      
     }
 }

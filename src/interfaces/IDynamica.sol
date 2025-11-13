@@ -15,11 +15,6 @@ interface IDynamica {
     /// @param perOutcomeAmount The amount per outcome
     event MarketInitialized(uint256 indexed initialFunding, string indexed question, uint256 perOutcomeAmount);
 
-    /// @notice Emitted when a new outcome token is created
-    /// @param tokenAddress The address of the created token
-    /// @param outcomeIndex The index of the outcome
-    event TokenCreated(address indexed tokenAddress, uint8 outcomeIndex);
-
     /// @notice Emitted when a trade is made
     /// @param trader The address of the trader
     /// @param outcomeTokenAmounts The amounts for each outcome
@@ -28,12 +23,6 @@ interface IDynamica {
     event OutcomeTokenTrade(
         address indexed trader, int256[] outcomeTokenAmounts, int256 outcomeTokenNetCost, uint256 marketFees
     );
-
-    /// @notice Emitted when the market is resolved
-    /// @param resolver The address that resolved the market
-    /// @param payouts The payout numerators for each outcome
-    /// @param denominator The payout denominator
-    event MarketResolved(address indexed resolver, uint256[] payouts, uint256 denominator);
 
     /// @notice Emitted when a payout is redeemed
     /// @param redeemer The address redeeming payout
@@ -73,6 +62,7 @@ interface IDynamica {
 
     /// @notice Emitted when the contract is exited
     /// @param timestamp The time of the exit
+    /// @param token The token withdrawn
     /// @param amount The amount exited
     event EmergencyExit(uint256 timestamp, address token, uint256 amount);
 
@@ -87,6 +77,25 @@ interface IDynamica {
     /// @param timestamp The time of the change
     event ExpirationEpochChanged(uint32 newExpirationEpoch, uint256 timestamp);
 
+    /// @notice Emitted when the epoch and period are updated
+    /// @param epoch The epoch number
+    /// @param period The period number
+    event EpochAndPeriodUpdated(uint32 epoch, uint32 period);
+
+    /// @notice Emitted when tokens are unblocked
+    /// @param user The address of the user
+    /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
+    /// @param epoch The epoch number
+    /// @param period The period number
+    event TokensUnblocked(address indexed user, uint256[] deltaOutcomeAmounts_, uint32 epoch, uint32 period);
+
+    /// @notice Emitted when a user claims tokens for a new epoch
+    /// @param user The address of the user
+    /// @param deltaOutcomeAmounts Array of token amount changes for each outcome
+    /// @param epoch The epoch number
+    /// @param period The period number
+    event ClaimForNewEpoch(address indexed user, int256[] deltaOutcomeAmounts, uint32 epoch, uint32 period);
+
     // ============ Errors ============
 
     /// @notice Thrown if collateral token decimals are too high
@@ -98,7 +107,7 @@ interface IDynamica {
     /// @notice Thrown if the sum is zero
     error ZeroSum();
     /// @notice Thrown if the delta outcome amounts length is invalid
-    error InvalidDeltaOutcomeAmountsLength(uint256 providedLength, uint256 expectedLength);
+    error InvalidLength(uint256 providedLength, uint256 expectedLength);
     /// @notice Thrown if a negative outcome amount is provided
     error NegativeOutcomeAmount(int256 amount);
     /// @notice Thrown if the market is already resolved
@@ -109,37 +118,14 @@ interface IDynamica {
     error OnlyOracleManager(address caller);
     /// @notice Thrown if a transfer fails
     error TransferFailed();
-    /// @notice Thrown if the outcome slot count does not match
-    error MustHaveExactlyOutcomeSlotCount(uint256 provided, uint256 expected);
-    /// @notice Thrown if the condition is not prepared or found
-    error ConditionNotPreparedOrFound();
     /// @notice Thrown if all payouts are zero
     error PayoutIsAllZeroes();
-    /// @notice Thrown if a payout numerator is already set
-    error PayoutNumeratorAlreadySet(uint256 index);
     /// @notice Thrown if there is nothing to redeem
     error NothingToRedeem();
     /// @notice Thrown if the fee is not less than the range
     error FeeMustBeLessThanRange(uint64 provided, uint64 max);
-    /// @notice Thrown if there are no fees to withdraw
-    error NoFeesToWithdraw();
-    /// @notice Thrown if the user has insufficient shares to sell
-    error InsufficientSharesToSell(address user, uint256 required, uint256 available);
-    error InsufficientSharesToSell_(address user, int64 required, int64 available);
-    /// @notice Thrown if the fee transfer fails
-    error FeeTransferFailed();
-    /// @notice Thrown if the return to owner transfer fails
-    error ReturnToOwnerTransferFailed();
-    /// @notice Thrown if token creation fails
-    error FailedToCreateToken();
-    /// @notice Thrown if token minting fails
-    error FailedToMintToken();
-    /// @notice Thrown if token burning fails
-    error FailedToBurnToken();
-    /// @notice Thrown if token transfer fails
-    error FailedToTransferToken();
-    /// @notice Thrown if the return to owner transfer fails
-    error NotEnoughCollateralToCoverPayouts(uint256 shortfall);
+    /// @notice Thrown if the problem with balance
+    error InsufficientBalance(uint256 available, uint256 required);
     /// @notice Thrown if the epoch is finished but not resolved yet
     error EpochFinishedButNotResolvedYet(uint32 epoch);
     /// @notice Thrown if the market is expired
@@ -151,34 +137,35 @@ interface IDynamica {
 
     /// @notice Market configuration struct
     struct Config {
+        /// @notice Owner of the market
         address owner;
-        ///< Owner of the market
+        /// @notice Collateral token address
         address collateralToken;
-        ///< Collateral token address
+        /// @notice Oracle address
         address oracle;
-        ///< Oracle address
+        /// @notice Decimals for outcome tokens
         uint8 decimals;
-        ///< Decimals for outcome tokens
+        /// @notice Market question
         string question;
-        ///< Market question
+        /// @notice Number of outcomes
         uint256 outcomeSlotCount;
-        ///< Number of outcomes
+        /// @notice Initial funding
         uint256 startFunding;
-        ///< Initial funding
+        /// @notice Amount per outcome
         uint256 outcomeTokenAmounts;
-        ///< Amount per outcome
+        /// @notice Fee in basis points
         uint64 fee;
-        ///< Fee in basis points
+        /// @notice Alpha parameter for LMSR
         int256 alpha;
-        ///< Alpha parameter for LMSR
+        /// @notice Exponential limit
         int256 expLimit;
-        ///< Exponential limit
+        /// @notice Expiration time
         uint32 expirationEpoch;
-        ///< Expiration time
+        /// @notice Fee adjustment parameter
         uint32 gamma;
-        ///< Gamma parameter for LMSR
+        /// @notice Duration of each epoch
         uint32 epochDuration;
-        ///< Epoch duration
+        /// @notice Duration of each period
         uint32 periodDuration;
     }
 
@@ -190,35 +177,22 @@ interface IDynamica {
         uint256 payoutDenominator;
         /// @notice Funding for the epoch
         uint256 funding;
+        /// @notice Funding for rollover
+        uint256 fundingForRollover;
         /// @notice Array of base prices for each outcome
         uint256[10] basePrice;
         /// @notice Array of payout numerators for each outcome
         uint256[10] payoutNumerators;
         /// @notice Array of supplies for each outcome token
-        uint256[10] outcomeTokenSupplies;
+        uint256[10] initialTokenSupply;
     }
-
-    /// @notice Structure to store period-specific data
-    struct PeriodData {
-        /// @notice Epoch number this period belongs to
-        uint32 epochNumber;
-        /// @notice Start timestamp of the period
-        uint32 periodStart;
-        /// @notice Array of outcome token amounts for this period
-        uint256[10] outcomeTokenAmounts;
-    }
-
-    // ============ Constants ============
-
-    /// @notice Returns the maximum fee range
-    function RANGE() external pure returns (uint32);
 
     // ============ State Variables ============
 
     /// @notice Returns the payout numerator for an outcome
     function payoutNumerators(uint256, uint256) external view returns (uint256);
     /// @notice Returns the supply for an outcome token
-    function outcomeTokenSupplies(uint256, uint256) external view returns (uint256);
+    function outcomeTokenSupplies(uint256, uint256, uint256) external view returns (uint256);
     /// @notice Returns the payout denominator
     function payoutDenominator(uint256) external view returns (uint256);
     /// @notice Returns the collateral token address
@@ -233,14 +207,26 @@ interface IDynamica {
     function oracleManager() external view returns (address);
     /// @notice Returns the number of outcome slots
     function outcomeSlotCount() external view returns (uint256);
-    /// @notice Returns the
+    /// @notice Returns whether the current epoch should be checked
     function checkEpoch() external view returns (bool);
+    /// @notice Returns the decimals for outcome tokens
+    function decimals() external view returns (uint8);
+    /// @notice Returns the current epoch number
+    function currentEpochNumber() external view returns (uint32);
+    /// @notice Returns the current period number
+    function currentPeriodNumber() external view returns (uint32);
+    /// @notice Returns the expiration epoch
+    function expirationEpoch() external view returns (uint32);
+    /// @notice Returns the epoch duration in seconds
+    function epochDuration() external view returns (uint32);
+    /// @notice Returns the period duration in seconds
+    function periodDuration() external view returns (uint32);
 
     // ============ External Functions ============
 
     /// @notice Makes a prediction by buying or selling outcome tokens
     /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-    function makePrediction(int256[] memory deltaOutcomeAmounts_) external;
+    function makePrediction(int256[] memory deltaOutcomeAmounts_, bool isRollover) external;
 
     /// @notice Closes the epoch by resolving the condition
     /// @param payouts Array of payout numerators for each outcome
@@ -249,12 +235,38 @@ interface IDynamica {
     /// @notice Redeems payout for resolved condition
     function redeemPayout(uint32 epoch) external;
 
+    /// @notice Unblocks tokens for a given epoch and period
+    /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
+    /// @param epochs Array of epochs
+    /// @param periods Array of periods
+    function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
+        external;
+
+    /// @notice Claims tokens for a new epoch based on blocked tokens from previous epoch
+    /// @param user The address of the user to claim for
+    function claimForNewEpoch(address user) external;
+
+    /// @notice Updates the current epoch and period based on elapsed time
+    /// @dev Only callable by owner
+    function updateEpochAndPeriod() external;
+
+    /// @notice Changes the expiration epoch
+    /// @param newExpirationEpoch The new expiration epoch
+    /// @dev Only callable by owner
+    function changeExpirationEpoch(uint32 newExpirationEpoch) external;
+
+    /// @notice Emergency exit function to withdraw all tokens of a specific type
+    /// @param token The address of the token to withdraw
+    /// @dev Only callable by owner
+    function emergencyExit(address token) external;
+
     // ============ Public Functions ============
 
-    /// @notice Calculates the net cost for a trade
-    /// @param outcomeTokenAmounts Array of token amount changes
-    /// @return netCost The net cost of the trade
-    function calcNetCost(int256[] memory outcomeTokenAmounts) external view returns (int256);
+    /// @notice Returns the supply for an outcome token per epoch
+    /// @param epoch Epoch number
+    /// @param outcomeSlot Outcome slot number
+    /// @return The supply for the outcome token per epoch
+    function outcomeTokenSuppliesPerEpoch(uint256 epoch, uint256 outcomeSlot) external view returns (uint256);
 
     /// @notice Changes the fee rate
     /// @param _fee The new fee rate
@@ -262,4 +274,23 @@ interface IDynamica {
 
     /// @notice Withdraws accumulated fees
     function withdrawFee() external;
+
+    /// @notice Returns the epoch data for a given epoch
+    /// @param epoch The epoch number
+    /// @return The epoch data
+    function getEpochData(uint256 epoch) external view returns (EpochData memory);
+
+    /// @notice Calculates the unique share ID for (epoch, period, outcome)
+    /// @param epoch Epoch number
+    /// @param period Period number
+    /// @param outcome Outcome index
+    /// @return The unique share ID
+    function shareId(uint256 epoch, uint256 period, uint256 outcome) external view returns (uint256);
+
+    /// @notice Decodes a share ID back into epoch, period, and outcome
+    /// @param id The share ID to decode
+    /// @return epoch Epoch number
+    /// @return period Period number
+    /// @return outcome Outcome index
+    function decodeShareId(uint256 id) external view returns (uint256 epoch, uint256 period, uint256 outcome);
 }
