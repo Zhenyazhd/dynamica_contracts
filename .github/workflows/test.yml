@@ -31,9 +31,7 @@ jobs:
       - name: Install dependencies
         run: forge soldeer install
 
-      - name: Check Solidity formatting
-        run: forge fmt --check
-        continue-on-error: true
+   
 
       - name: Build contracts
         run: forge build
