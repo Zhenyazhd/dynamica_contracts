@@ -31,8 +31,6 @@ jobs:
       - name: Install dependencies
         run: forge soldeer install
 
-   
-
       - name: Build contracts
         run: forge build --sizes
 
@@ -43,28 +41,6 @@ jobs:
         run: forge fmt --check
         continue-on-error: true
 
-
-      - name: Install lcov
-        run: sudo apt-get update && sudo apt-get install -y lcov
-
       - name: Run coverage (optional)
-        run: forge coverage --report lcov
+        run: forge coverage 
         continue-on-error: true
-
-      - name: Upload lcov.info (if present)
-        if: hashFiles('lcov.info') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-lcov
-          path: lcov.info
-
-      - name: Generate HTML report (if lcov exists)
-        if: hashFiles('lcov.info') != ''
-        run: genhtml lcov.info --output-directory coverage
-
-      - name: Upload HTML report
-        if: hashFiles('lcov.info') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-html
-          path: coverage/
