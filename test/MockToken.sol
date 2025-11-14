@@ -83,11 +83,3 @@ contract MockToken is IERC20 {
         return _decimals;
     }
 }
-
-/**
- * erc4626-tests/=lib/openzeppelin-contracts/lib/erc4626-tests/
- * halmos-cheatcodes/=lib/openzeppelin-contracts/lib/halmos-cheatcodes/src/
- * openzeppelin-contracts/=lib/openzeppelin-contracts/
- * @openzeppelin-contracts-5.2.0-rc.1/=dependencies/flare-periphery-0.1.28/dependencies/@openzeppelin-contracts-5.2.0-rc.1/
- * @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
- */
