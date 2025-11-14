@@ -2,7 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {IDynamica} from "./IDynamica.sol";
-import {IMarketResolutionModule} from "./IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "./Oracles/IMarketResolutionModule.sol";
 
 /**
  * @title IDynamicaFactory

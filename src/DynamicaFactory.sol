@@ -18,7 +18,7 @@ import {IDynamica} from "./interfaces/IDynamica.sol";
 import {IDynamicaFactory} from "./interfaces/IDynamicaFactory.sol";
 import {MarketResolutionManager} from "./Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "./Oracles/Hedera/ChainlinkResolutionModule.sol";
-import {IMarketResolutionModule} from "./interfaces/IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "./interfaces/Oracles/IMarketResolutionModule.sol";
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {UpgradeableBeacon} from "@openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {BeaconProxy} from "@openzeppelin-contracts/proxy/beacon/BeaconProxy.sol";

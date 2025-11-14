@@ -3,20 +3,17 @@ pragma solidity ^0.8.25;
 
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 import {IDynamica} from "../interfaces/IDynamica.sol";
-import {IMarketResolutionModule} from "../interfaces/IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "../interfaces/Oracles/IMarketResolutionModule.sol";
+import {IMarketResolutionManager} from "../interfaces/Oracles/IMarketResolutionManager.sol";
 
 /**
  * @title MarketResolutionManager
  * @dev Manages the resolution of prediction markets through various resolution modules
  * @notice This contract acts as a central coordinator for market resolution, allowing
- * different types of resolution modules to handle market outcomes
- *
- * The contract provides:
- * - Market registration with specific resolution modules
- * - Market resolution through configured modules
- * - Centralized tracking of market states
+ * different types of resolution modules to handle market outcomes. For detailed
+ * documentation, see {IMarketResolutionManager}.
  */
-contract MarketResolutionManager is Ownable {
+contract MarketResolutionManager is Ownable, IMarketResolutionManager {
     // ============ State Variables ============
 
     /// @notice Address of the factory contract that can register markets
@@ -37,24 +34,13 @@ contract MarketResolutionManager is Ownable {
         uint8[] decimals;
     }
 
-    // ============ Events ============
-
-    /// @notice Emitted when a new market is registered
-    event MarketRegistered(bytes32 indexed questionId, address indexed marketMaker, address indexed resolutionModule);
-
-    /// @notice Emitted when a market is resolved with payout ratios
-    event MarketResolved(bytes32 indexed questionId, uint256[] payouts);
-
     // ============ Modifiers ============
 
     /// @notice Ensures only the factory contract can call the function
     modifier onlyFactory() {
-        require(msg.sender == factory, "Only factory can call this function");
-        _;
-    }
-
-    modifier onlyWhenExpired(uint32 expirationEpoch) {
-        require(block.timestamp > expirationEpoch, "Market not expired");
+        if (msg.sender != factory) {
+            revert OnlyFactory(msg.sender);
+        }
         _;
     }
 
@@ -64,9 +50,12 @@ contract MarketResolutionManager is Ownable {
      * @notice Initializes the MarketResolutionManager
      * @param owner The owner of the contract
      * @param _factory The address of the factory contract
+     * @dev See {IMarketResolutionManager} for interface documentation
      */
     constructor(address owner, address _factory) Ownable(owner) {
-        require(_factory != address(0), "Invalid factory address");
+        if (_factory == address(0)) {
+            revert InvalidFactoryAddress();
+        }
         factory = _factory;
     }
 
@@ -80,7 +69,7 @@ contract MarketResolutionManager is Ownable {
      * @param resolutionModule Address of the resolution module contract for this market
      * @param resolutionModuleType Type of resolution module (e.g., FTSO, Chainlink, etc.)
      * @param resolutionData Module-specific resolution data (e.g., oracle pairs list)
-     * @dev Only callable by the factory contract
+     * @dev See {IMarketResolutionManager-registerMarket}
      */
     function registerMarket(
         bytes32 questionId,
@@ -98,7 +87,7 @@ contract MarketResolutionManager is Ownable {
             outcomeSlotCount,
             resolutionModule,
             resolutionData,
-            false, // isResolve
+            false, // isResolved
             resolutionModuleType
         );
 
@@ -108,12 +97,14 @@ contract MarketResolutionManager is Ownable {
     /**
      * @notice Resolves a market by calling the appropriate resolution module
      * @param questionId The question/market ID to resolve
-     * @dev Only callable by the owner. Calls the resolution module and passes
-     * the result to the MarketMaker contract
+     * @dev See {IMarketResolutionManager-resolveMarket}
      */
     function resolveMarket(bytes32 questionId) external onlyOwner {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
-        require(IDynamica(config.marketMaker).checkEpoch(), "Last epoch isn't finished yet");
+
+        if (!IDynamica(config.marketMaker).checkEpoch()) {
+            revert LastEpochNotFinishedYet();
+        }
 
         _validateMarketResolution(config);
 
@@ -126,6 +117,12 @@ contract MarketResolutionManager is Ownable {
         emit MarketResolved(questionId, payouts);
     }
 
+    /**
+     * @notice Gets current market data without resolving
+     * @param questionId The question/market ID
+     * @return payouts Array of payout numerators for each outcome
+     * @dev See {IMarketResolutionManager-getCurrentMarketData}
+     */
     function getCurrentMarketData(bytes32 questionId) external returns (uint256[] memory payouts) {
         IMarketResolutionModule.MarketResolutionConfig storage config = marketConfigs[questionId];
         _validateMarketResolution(config);
@@ -147,10 +144,18 @@ contract MarketResolutionManager is Ownable {
         uint256 outcomeSlotCount,
         address resolutionModule
     ) private view {
-        require(marketConfigs[questionId].marketMaker == address(0), "Market already registered");
-        require(marketMaker != address(0), "Invalid market maker address");
-        require(resolutionModule != address(0), "Invalid resolution module address");
-        require(outcomeSlotCount > 1, "Must have more than one outcome slot");
+        if (marketConfigs[questionId].marketMaker != address(0)) {
+            revert MarketAlreadyRegistered(questionId);
+        }
+        if (marketMaker == address(0)) {
+            revert InvalidMarketMakerAddress();
+        }
+        if (resolutionModule == address(0)) {
+            revert InvalidResolutionModuleAddress();
+        }
+        if (outcomeSlotCount <= 1) {
+            revert MustHaveMoreThanOneOutcomeSlot();
+        }
     }
 
     /**
@@ -158,8 +163,12 @@ contract MarketResolutionManager is Ownable {
      * @param config The market resolution configuration
      */
     function _validateMarketResolution(IMarketResolutionModule.MarketResolutionConfig storage config) private view {
-        require(config.marketMaker != address(0), "Market not registered");
-        require(!config.isResolved, "Market already resolved");
+        if (config.marketMaker == address(0)) {
+            revert MarketNotRegistered();
+        }
+        if (config.isResolved) {
+            revert MarketAlreadyResolved();
+        }
     }
 
     /**
@@ -191,15 +200,27 @@ contract MarketResolutionManager is Ownable {
         ChainlinkConfig memory config = abi.decode(resolutionData, (ChainlinkConfig));
 
         // Validate array lengths match outcomeSlotCount
-        require(config.priceFeedAddresses.length == outcomeSlotCount, "Price feed addresses length mismatch");
-        require(config.staleness.length == outcomeSlotCount, "Staleness array length mismatch");
-        require(config.decimals.length == outcomeSlotCount, "Decimals array length mismatch");
+        if (config.priceFeedAddresses.length != outcomeSlotCount) {
+            revert PriceFeedAddressesLengthMismatch(config.priceFeedAddresses.length, outcomeSlotCount);
+        }
+        if (config.staleness.length != outcomeSlotCount) {
+            revert StalenessArrayLengthMismatch(config.staleness.length, outcomeSlotCount);
+        }
+        if (config.decimals.length != outcomeSlotCount) {
+            revert DecimalsArrayLengthMismatch(config.decimals.length, outcomeSlotCount);
+        }
 
         // Validate each price feed address is not zero
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            require(config.priceFeedAddresses[i] != address(0), "Invalid price feed address");
-            require(config.staleness[i] > 0, "Staleness must be positive");
-            require(config.decimals[i] <= 18, "Decimals must be <= 18");
+            if (config.priceFeedAddresses[i] == address(0)) {
+                revert InvalidPriceFeedAddress(i);
+            }
+            if (config.staleness[i] == 0) {
+                revert StalenessMustBePositive(i, config.staleness[i]);
+            }
+            if (config.decimals[i] > 18) {
+                revert DecimalsMustBeLessThanOrEqual18(i, config.decimals[i]);
+            }
         }
     }
 

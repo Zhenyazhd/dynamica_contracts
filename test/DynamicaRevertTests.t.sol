@@ -7,9 +7,10 @@ import {IDynamica} from "../src/interfaces/IDynamica.sol";
 import {DynamicaFactory} from "../src/DynamicaFactory.sol";
 import {IDynamicaFactory} from "../src/interfaces/IDynamicaFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
+import {IMarketResolutionManager} from "../src/interfaces/Oracles/IMarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
 import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
-import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "../src/interfaces/Oracles/IMarketResolutionModule.sol";
 import {LMSRMath} from "../src/LMSRMath.sol";
 import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
 /**
@@ -716,7 +717,7 @@ contract DynamicaRevertTests is OracleSetUP {
     function testMarketResolutionManagerResolveMarketReverts() public {
         // Test last epoch isn't finished yet
         vm.warp(block.timestamp + 8 days + 1);
-        vm.expectRevert("Last epoch isn't finished yet");
+        vm.expectRevert(abi.encodeWithSelector(IMarketResolutionManager.LastEpochNotFinishedYet.selector));
         vm.prank(OWNER);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
     }

@@ -2,8 +2,45 @@ name: CI
 
 on:
   push:
+    branches: [main, ci-test]
   pull_request:
+    branches: [main, ci-test]
   workflow_dispatch:
 
 env:
   FOUNDRY_PROFILE: ci
+
+jobs:
+  test:
+    name: Foundry Tests
+    runs-on: ubuntu-latest
+    steps:
+  
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show Foundry version
+        run: |
+          forge --version
+        
+      - name: Install dependencies
+        run: forge soldeer install
+
+      - name: Build contracts
+        run: forge build --sizes
+
+      - name: Run tests (gas report + summary)
+        run: forge test --gas-report --summary
+
+      - name: Check Solidity formatting
+        run: forge fmt --check
+        continue-on-error: true
+
+      - name: Run coverage (optional)
+        run: forge coverage 
+        continue-on-error: true

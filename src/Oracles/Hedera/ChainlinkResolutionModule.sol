@@ -3,14 +3,15 @@ pragma solidity ^0.8.25;
 
 import {AggregatorV3Interface} from
     "smartcontractkit-chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
-import {IMarketResolutionModule} from "../../interfaces/IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "../../interfaces/Oracles/IMarketResolutionModule.sol";
 import {Initializable} from "@openzeppelin-contracts/proxy/utils/Initializable.sol";
 
 /**
  * @title ChainlinkResolutionModule
  * @dev Resolution module that uses Chainlink price feeds to determine market outcomes
  * @notice This module resolves prediction markets based on real-time price data from
- * Chainlink oracles, normalizing the results to payout ratios
+ * Chainlink oracles, normalizing the results to payout ratios. For detailed
+ * documentation, see {IMarketResolutionModule}.
  *
  * The module:
  * - Fetches price data from multiple Chainlink price feeds
@@ -41,7 +42,9 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
 
     /// @notice Ensures only the market resolution manager can call the function
     modifier onlyMarketResolutionManager() {
-        require(msg.sender == marketResolutionManager, "Only market resolution manager can call this function");
+        if (msg.sender != marketResolutionManager) {
+            revert OnlyMarketResolutionManager(msg.sender);
+        }
         _;
     }
 
@@ -59,9 +62,12 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
     /**
      * @notice Initializes the Chainlink resolution module
      * @param _marketResolutionManager Address of the market resolution manager
+     * @dev See {IMarketResolutionModule} for interface documentation
      */
     function initialize(address _marketResolutionManager) public initializer {
-        require(_marketResolutionManager != address(0), "Invalid market resolution manager address");
+        if (_marketResolutionManager == address(0)) {
+            revert InvalidMarketResolutionManagerAddress();
+        }
         marketResolutionManager = _marketResolutionManager;
     }
 
@@ -71,6 +77,7 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param outcomeSlotCount Number of possible outcomes
      * @param resolutionData Encoded ChainlinkConfig containing price feed addresses and parameters
      * @return payouts Array of payout numerators that sum to 1e18
+     * @dev See {IMarketResolutionModule-resolveMarket}
      */
     function resolveMarket(uint256 outcomeSlotCount, bytes calldata resolutionData)
         external
@@ -110,9 +117,15 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
      * @param outcomeSlotCount The expected number of outcomes
      */
     function _validateConfig(ChainlinkConfig memory config, uint256 outcomeSlotCount) private pure {
-        require(config.priceFeedAddresses.length == outcomeSlotCount, "Config mismatch: priceFeedAddresses");
-        require(config.decimals.length == outcomeSlotCount, "Config mismatch: decimals");
-        require(config.staleness.length == outcomeSlotCount, "Config mismatch: staleness");
+        if (config.priceFeedAddresses.length != outcomeSlotCount) {
+            revert PriceFeedAddressesLengthMismatch(config.priceFeedAddresses.length, outcomeSlotCount);
+        }
+        if (config.decimals.length != outcomeSlotCount) {
+            revert DecimalsLengthMismatch(config.decimals.length, outcomeSlotCount);
+        }
+        if (config.staleness.length != outcomeSlotCount) {
+            revert StalenessLengthMismatch(config.staleness.length, outcomeSlotCount);
+        }
     }
 
     /**
@@ -136,14 +149,18 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
             (, int256 price,, uint256 updatedAt,) = priceFeed.latestRoundData();
 
             // Validate data freshness
-            require(currentTimestamp - updatedAt <= config.staleness[i], "Oracle data is stale");
+            if (currentTimestamp - updatedAt > config.staleness[i]) {
+                revert OracleDataStale(i, config.staleness[i], updatedAt, currentTimestamp);
+            }
 
             // Convert price to 18 decimal precision and add to payouts
             payouts[i] = uint256(price) * 10 ** (18 - config.decimals[i]);
             denominator += payouts[i];
         }
 
-        require(denominator > 0, "Denominator cannot be zero");
+        if (denominator == 0) {
+            revert DenominatorCannotBeZero();
+        }
     }
 
     /**
@@ -189,6 +206,12 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
         }
     }
 
+    /**
+     * @notice Gets current market data without resolving
+     * @return payouts Array of payout numerators for each outcome
+     * @dev See {IMarketResolutionModule-getCurrentMarketData}
+     *      Note: questionId parameter is unused in this implementation
+     */
     function getCurrentMarketData(bytes32 /* questionId */ ) external pure returns (uint256[] memory payouts) {
         payouts = new uint256[](2);
         payouts[0] = 1000;

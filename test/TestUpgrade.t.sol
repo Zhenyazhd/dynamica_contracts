@@ -8,7 +8,7 @@ import {DynamicaFactory} from "../src/DynamicaFactory.sol";
 import {MarketResolutionManager} from "../src/Oracles/MarketResolutionManager.sol";
 import {ChainlinkResolutionModule} from "../src/Oracles/Hedera/ChainlinkResolutionModule.sol";
 import {OracleSetUP} from "./MockOracles/OracleSetUP.t.sol";
-import {IMarketResolutionModule} from "../src/interfaces/IMarketResolutionModule.sol";
+import {IMarketResolutionModule} from "../src/interfaces/Oracles/IMarketResolutionModule.sol";
 import {LMSRMath} from "../src/LMSRMath.sol";
 import {UpgradeableBeacon} from "@openzeppelin-contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {Test} from "forge-std/src/Test.sol";
