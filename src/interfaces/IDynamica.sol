@@ -185,6 +185,9 @@ interface IDynamica {
         uint256[10] payoutNumerators;
         /// @notice Array of supplies for each outcome token
         uint256[10] initialTokenSupply;
+
+        uint256 totalPayout;
+        /// @notice Array of blocked tokens for each outcome
     }
 
     // ============ State Variables ============

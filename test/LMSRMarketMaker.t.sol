@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {MockToken, IERC20} from "./MockToken.sol";
+import {MockToken, IERC20Mock} from "./MockToken.sol";
 import {MockToken} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
@@ -99,22 +99,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
 
         super.setUp();
 
-        // Deploy and configure mock token
         _setupMockToken();
-
-        // Deploy implementation contracts
         _deployImplementations();
-
-        // Deploy and configure factory
         _setupFactory();
-
-        // Deploy market resolution manager
         _setupMarketResolutionManager();
-
-        // Create test market
         _createTestMarket();
-
-        // Mint tokens to test traders
         _mintTokensToTraders();
 
         vm.stopPrank();
@@ -128,7 +117,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         assertEq(marketMaker.currentPeriodNumber(), 1);
         assertEq(marketMaker.balanceOf(address(marketMaker), marketMaker.shareId(1, 1, 0)), uint256(uint64(INITIAL_SUPPLY)));
         assertEq(marketMaker.balanceOf(address(marketMaker), marketMaker.shareId(1, 1, 1)), uint256(uint64(INITIAL_SUPPLY)));
-        assertEq(IERC20(mockToken).balanceOf(address(marketMaker)), START_FUNDING);
+        assertEq(IERC20Mock(mockToken).balanceOf(address(marketMaker)), START_FUNDING);
     }
 
     function testEpoch() public {
@@ -160,33 +149,21 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      * @dev Tests market creation, multiple trades, resolution, and payout distribution
      */
     function testMarketCicle() public {
-        // Track initial balances
         uint256[] memory startBalances = _getInitialBalances();
 
-        // Execute trading sequence
         _executeTradingSequence();
 
-        // Record market balance before resolution
-        startBalances[4] = IERC20(mockToken).balanceOf(address(marketMaker));
+        startBalances[4] = IERC20Mock(mockToken).balanceOf(address(marketMaker));
 
-        // Resolve the market
         vm.warp(block.timestamp + 8 days + 1);
         console.log('currentEpochNumber', marketMaker.currentEpochNumber());
 
         vm.prank(OWNER);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-        //console.log('basePrice_0', marketMaker.basePrice(0));
-        //console.log('basePrice_1', marketMaker.basePrice(1));
-        // Redeem payouts for all traders 
+        
         _redeemPayoutsForTraders(1); 
         _redeemPayoutsForTraders(2); 
 
-
-        //vm.prank(OWNER);
-       // marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-
-
-        // Display final balance comparison
         _displayBalanceComparison(startBalances);
     }
 
@@ -199,7 +176,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _setupMockToken() private {
         this.createToken("Token1", "T1");
-        IERC20(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     /**
@@ -230,7 +207,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     function _setupMarketResolutionManager() private {
         marketResolutionManager = new MarketResolutionManager(OWNER, address(factory));
         factory.setOracleCoordinator(address(marketResolutionManager));
-        IERC20(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     /**
@@ -238,7 +215,6 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _createTestMarket() private {
         ChainlinkResolutionModule.ChainlinkConfig memory chainlinkConfig = _prepareChainlinkConfig();
-        // Create market through factory
         factory.createMarketMaker(
             IDynamica.Config({
                 owner: OWNER,
@@ -279,15 +255,12 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         uint256[] memory staleness = new uint256[](2);
         uint8[] memory decimals = new uint8[](2);
 
-        // Set price feed addresses
         priceFeedAddresses[0] = address(ethUsdAggregator);
         priceFeedAddresses[1] = address(btcUsdAggregator);
 
-        // Set staleness periods (1 hour)
         staleness[0] = 3600;
         staleness[1] = 3600;
 
-        // Set decimal places
         decimals[0] = ethUsdAggregator.decimals();
         decimals[1] = btcUsdAggregator.decimals();
 
@@ -298,10 +271,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      * @notice Mints tokens to test traders
      */
     function _mintTokensToTraders() private {
-        IERC20(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     // ============ Private Test Functions ============
@@ -312,10 +285,10 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _getInitialBalances() private view returns (uint256[] memory startBalances) {
         startBalances = new uint256[](5);
-        startBalances[0] = IERC20(mockToken).balanceOf(trader0);
-        startBalances[1] = IERC20(mockToken).balanceOf(trader1);
-        startBalances[2] = IERC20(mockToken).balanceOf(trader2);
-        startBalances[3] = IERC20(mockToken).balanceOf(trader3);
+        startBalances[0] = IERC20Mock(mockToken).balanceOf(trader0);
+        startBalances[1] = IERC20Mock(mockToken).balanceOf(trader1);
+        startBalances[2] = IERC20Mock(mockToken).balanceOf(trader2);
+        startBalances[3] = IERC20Mock(mockToken).balanceOf(trader3);
     }
 
     /**
@@ -346,12 +319,11 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
                 balances[j] = marketMaker.balanceOf(traders[i], marketMaker.shareId(marketMaker.currentEpochNumber(), marketMaker.currentPeriodNumber(), j));
             }
             vm.startPrank(traders[i]);
-            int256 mockBalance = int256(IERC20(mockToken).balanceOf(traders[i]));
+            int256 mockBalance = int256(IERC20Mock(mockToken).balanceOf(traders[i]));
             marketMaker.setApprovalForAll(address(marketMaker), true);
-            IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
+            IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
             marketMaker.makePrediction(amounts[i], false);
             for (uint256 j = 0; j < amounts[i].length; j++) {
-                //assertEq(int256(marketMaker.balanceOf(traders[i], marketMaker.shareId(marketMaker.currentEpochNumber(), marketMaker.currentPeriodNumber(), j))), int256(balances[j]) + amounts[i][j]);
             }
             console.log('_________________________________________________');
             console.log('trader', traders[i]);
@@ -359,7 +331,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
             console.log('period', marketMaker.currentPeriodNumber());
             console.log('amounts_0', amounts[i][0]);
             console.log('amounts_1', amounts[i][1]);
-            console.log('balance', mockBalance - int256(IERC20(mockToken).balanceOf(traders[i])));
+            console.log('balance', mockBalance - int256(IERC20Mock(mockToken).balanceOf(traders[i])));
             console.log('_________________________________________________');
             vm.stopPrank();
         }
@@ -506,13 +478,12 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _displayBalanceComparison(uint256[] memory startBalances) private view {
         uint256[] memory endBalances = new uint256[](5);
-        endBalances[0] = IERC20(mockToken).balanceOf(trader0);
-        endBalances[1] = IERC20(mockToken).balanceOf(trader1);
-        endBalances[2] = IERC20(mockToken).balanceOf(trader2);
-        endBalances[3] = IERC20(mockToken).balanceOf(trader3);
-        endBalances[4] = IERC20(mockToken).balanceOf(address(marketMaker));
+        endBalances[0] = IERC20Mock(mockToken).balanceOf(trader0);
+        endBalances[1] = IERC20Mock(mockToken).balanceOf(trader1);
+        endBalances[2] = IERC20Mock(mockToken).balanceOf(trader2);
+        endBalances[3] = IERC20Mock(mockToken).balanceOf(trader3);
+        endBalances[4] = IERC20Mock(mockToken).balanceOf(address(marketMaker));
 
-        // Display balance changes for each participant
         for (uint256 i = 0; i < 4; i++) {
             console.log('_________________________________________________');
             console.log("startBalances", startBalances[i]);
@@ -522,7 +493,6 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
 
         }
 
-        // Display market maker balance
         console.log("startBalances", startBalances[4]);
         console.log("endBalances", endBalances[4]);
     }

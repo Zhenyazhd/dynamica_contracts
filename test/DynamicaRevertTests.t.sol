@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {MockToken, IERC20} from "./MockToken.sol";
+import {MockToken, IERC20Mock} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
 import {DynamicaFactory} from "../src/DynamicaFactory.sol";
@@ -831,7 +831,7 @@ contract DynamicaRevertTests is OracleSetUP {
 
     function _setupMockToken() private {
         this.createToken("Token1", "T1");
-        IERC20(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     function _deployImplementations() private {
@@ -850,7 +850,7 @@ contract DynamicaRevertTests is OracleSetUP {
     function _setupMarketResolutionManager() private {
         marketResolutionManager = new MarketResolutionManager(OWNER, address(factory));
         factory.setOracleCoordinator(address(marketResolutionManager));
-        IERC20(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     function _createTestMarket() private {
@@ -906,9 +906,9 @@ contract DynamicaRevertTests is OracleSetUP {
     }
 
     function _mintTokensToTraders() private {
-        IERC20(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 }

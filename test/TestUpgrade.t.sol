@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {MockToken, IERC20} from "./MockToken.sol";
+import {MockToken, IERC20Mock} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
 import {DynamicaFactory} from "../src/DynamicaFactory.sol";
@@ -136,7 +136,7 @@ contract TestUpgrade is OracleSetUP {
         string memory initialQuestion = marketMaker.question();
         IDynamica.EpochData memory initialEpochData = marketMaker.getEpochData(1);
         uint32 initialEpochStart = initialEpochData.epochStart;
-        uint256 initialBalance = IERC20(mockToken).balanceOf(address(marketMaker));
+        uint256 initialBalance = IERC20Mock(mockToken).balanceOf(address(marketMaker));
 
         // Verify initial version
         assertEq(marketMaker.version(), 1, "Initial version should be 1");
@@ -160,7 +160,7 @@ contract TestUpgrade is OracleSetUP {
         assertEq(marketMaker.owner(), initialOwner, "Owner should be preserved");
         assertEq(marketMaker.collateralToken(), initialCollateralToken, "Collateral token should be preserved");
         assertEq(keccak256(bytes(marketMaker.question())), keccak256(bytes(initialQuestion)), "Question should be preserved");
-        assertEq(IERC20(mockToken).balanceOf(address(marketMaker)), initialBalance, "Balance should be preserved");
+        assertEq(IERC20Mock(mockToken).balanceOf(address(marketMaker)), initialBalance, "Balance should be preserved");
         
         // Verify epoch data is accessible (structure is preserved)
         uint32 epochStartAfter = marketMaker.getEpochData(1).epochStart;
@@ -240,7 +240,7 @@ contract TestUpgrade is OracleSetUP {
      */
     function _setupMockToken() private {
         mockToken = address(new MockToken(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     /**
@@ -273,7 +273,7 @@ contract TestUpgrade is OracleSetUP {
     function _setupMarketResolutionManager() private {
         marketResolutionManager = new MarketResolutionManager(OWNER, address(factory));
         factory.setOracleCoordinator(address(marketResolutionManager));
-        IERC20(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     /**

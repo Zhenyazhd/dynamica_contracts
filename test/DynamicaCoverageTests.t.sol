@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {MockToken, IERC20} from "./MockToken.sol";
+import {MockToken, IERC20Mock} from "./MockToken.sol";
 import {Dynamica} from "../src/Dynamica.sol";
 import {IDynamica} from "../src/interfaces/IDynamica.sol";
 import {DynamicaFactory} from "../src/DynamicaFactory.sol";
@@ -106,7 +106,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 0;
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
@@ -115,7 +115,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 50 * int256(10 ** DECIMALS);
 
         vm.startPrank(trader1);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
@@ -134,7 +134,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         largeAmounts[1] = 0;
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 100_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 100_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(largeAmounts, false);
         vm.stopPrank();
 
@@ -155,7 +155,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts1[1] = 200 * int256(10 ** DECIMALS);
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts1, false);
         vm.stopPrank();
 
@@ -165,7 +165,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts2[1] = 150 * int256(10 ** DECIMALS);
 
         vm.startPrank(trader1);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts2, false);
         vm.stopPrank();
 
@@ -244,7 +244,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 0;
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
@@ -266,14 +266,14 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[0] = 100 * int256(10 ** DECIMALS);
         amounts[1] = 0;
 
-        uint256 initialBalance = IERC20(mockToken).balanceOf(trader0);
+        uint256 initialBalance = IERC20Mock(mockToken).balanceOf(trader0);
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
-        uint256 finalBalance = IERC20(mockToken).balanceOf(trader0);
+        uint256 finalBalance = IERC20Mock(mockToken).balanceOf(trader0);
 
         // Balance should have decreased (cost of buying)
         assertLt(finalBalance, initialBalance);
@@ -282,13 +282,13 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[0] = -50 * int256(10 ** DECIMALS);
         amounts[1] = 0;
 
-        uint256 balanceBeforeSell = IERC20(mockToken).balanceOf(trader0);
+        uint256 balanceBeforeSell = IERC20Mock(mockToken).balanceOf(trader0);
 
         vm.startPrank(trader0);
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
-        uint256 balanceAfterSell = IERC20(mockToken).balanceOf(trader0);
+        uint256 balanceAfterSell = IERC20Mock(mockToken).balanceOf(trader0);
 
         // Balance should have increased (payout from selling)
         assertGt(balanceAfterSell, balanceBeforeSell);
@@ -335,18 +335,18 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 0;
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
         // Now withdraw fees - covers lines 344-354
-        uint256 initialBalance = IERC20(mockToken).balanceOf(OWNER);
+        uint256 initialBalance = IERC20Mock(mockToken).balanceOf(OWNER);
 
         vm.startPrank(OWNER);
         marketMaker.withdrawFee();
         vm.stopPrank();
 
-        uint256 finalBalance = IERC20(mockToken).balanceOf(OWNER);
+        uint256 finalBalance = IERC20Mock(mockToken).balanceOf(OWNER);
 
         // Balance should have increased
         assertGt(finalBalance, initialBalance);
@@ -359,20 +359,20 @@ contract DynamicaCoverageTests is OracleSetUP {
 
     function testEmergencyExit() public {
         // Test emergencyExit function - covers lines 357-363
-        uint256 initialBalance = IERC20(mockToken).balanceOf(OWNER);
-        uint256 marketBalance = IERC20(mockToken).balanceOf(address(marketMaker));
+        uint256 initialBalance = IERC20Mock(mockToken).balanceOf(OWNER);
+        uint256 marketBalance = IERC20Mock(mockToken).balanceOf(address(marketMaker));
 
         vm.startPrank(OWNER);
         marketMaker.emergencyExit(address(mockToken));
         vm.stopPrank();
 
-        uint256 finalBalance = IERC20(mockToken).balanceOf(OWNER);
+        uint256 finalBalance = IERC20Mock(mockToken).balanceOf(OWNER);
 
         // Owner should have received the market's balance
         assertEq(finalBalance, initialBalance + marketBalance);
 
         // Market should have zero balance
-        assertEq(IERC20(mockToken).balanceOf(address(marketMaker)), 0);
+        assertEq(IERC20Mock(mockToken).balanceOf(address(marketMaker)), 0);
     }
 
     function testEmergencyExitWithDifferentToken() public {
@@ -545,7 +545,8 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 0;
 
         vm.startPrank(trader0);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
 
@@ -563,7 +564,7 @@ contract DynamicaCoverageTests is OracleSetUP {
         amounts[1] = 50 * int256(10 ** DECIMALS);
         
         vm.startPrank(trader1);
-        IERC20(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(DECIMALS_COLLATERAL));
         marketMaker.makePrediction(amounts, false);
         vm.stopPrank();
         
@@ -590,7 +591,7 @@ contract DynamicaCoverageTests is OracleSetUP {
 
     function _setupMockToken() private {
         this.createToken("Token1", "T1");
-        IERC20(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(OWNER, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     function _deployImplementations() private {
@@ -609,7 +610,7 @@ contract DynamicaCoverageTests is OracleSetUP {
     function _setupMarketResolutionManager() private {
         marketResolutionManager = new MarketResolutionManager(OWNER, address(factory));
         factory.setOracleCoordinator(address(marketResolutionManager));
-        IERC20(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).approve(address(factory), 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 
     function _createTestMarket() private {
@@ -665,9 +666,9 @@ contract DynamicaCoverageTests is OracleSetUP {
     }
 
     function _mintTokensToTraders() private {
-        IERC20(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
-        IERC20(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader0, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader1, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader2, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
+        IERC20Mock(mockToken).mint(trader3, 1_000_000 * 10 ** uint256(DECIMALS_COLLATERAL));
     }
 }

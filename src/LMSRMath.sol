@@ -62,7 +62,7 @@ contract LMSRMath {
         return maxZ.sub(expLimitDec);
     }
 
-    function calcMarginalPricePure(int256[] memory qInt, uint8 idx, int256 alphaWad, SD59x18 expLimitDec)
+    function calcMarginalPricePure(int256[] memory qInt, uint8 idx, int256 alphaWad, uint256 expLimit)
         external
         pure
         returns (int256 priceWad)
@@ -87,6 +87,7 @@ contract LMSRMath {
             qWad[i] = qWad[i].div(b);
         }
 
+        SD59x18 expLimitDec = sd(int256((uint256(expLimit) * uint256(UNIT_DEC)) / 100));
         SD59x18 offset = computeOffset(qWad, expLimitDec);
 
         SD59x18 sum = sd(0);
@@ -119,7 +120,7 @@ contract LMSRMath {
             newSd[i] = sd(int256(uint256(qNew) * uint256(UNIT_DEC)));
         }
 
-        SD59x18 alpha = SD59x18.wrap(alphaWad);
+        SD59x18 alpha = sd(int256((uint256(alphaWad) * uint256(UNIT_DEC)) / 100));
 
         SD59x18 bOld = getB(currentSd, alpha);
         SD59x18 bNew = getB(newSd, alpha);

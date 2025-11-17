@@ -31,7 +31,6 @@ contract OracleSetUP is Test {
     function setUp() public virtual {
         // Deploy mock Chainlink aggregators
         ethUsdAggregator = new MockAggregator(int256(ETH_USD_PRICE), CHAINLINK_DECIMALS, "ETH / USD", 1);
-
         btcUsdAggregator = new MockAggregator(int256(BTC_USD_PRICE), CHAINLINK_DECIMALS, "BTC / USD", 1);
 
     }

@@ -13,16 +13,13 @@ pragma solidity ^0.8.25;
 import {IERC20} from "@openzeppelin-contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20Metadata} from "@openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IDynamica} from "./interfaces/IDynamica.sol";
-import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {Initializable} from "@openzeppelin-contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ERC1155Upgradeable} from "@openzeppelin-contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
-import {ERC1155HolderUpgradeable} from
-    "@openzeppelin-contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
-import {ERC1155SupplyUpgradeable} from
-    "@openzeppelin-contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin-contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {LMSRMath} from "./LMSRMath.sol";
+import {IDynamica} from "../../src/interfaces/IDynamica.sol";
+import {Ownable} from "@openzeppelin-contracts/access/Ownable.sol";
+import {ERC1155} from "@openzeppelin-contracts/token/ERC1155/ERC1155.sol";
+import {ERC1155Holder} from "@openzeppelin-contracts/token/ERC1155/utils/ERC1155Holder.sol";
+import {ERC1155Supply} from "@openzeppelin-contracts/token/ERC1155/extensions/ERC1155Supply.sol";
+import {ReentrancyGuard} from "@openzeppelin-contracts/utils/ReentrancyGuard.sol";
+import {LMSRMath} from "../../src/LMSRMath.sol";
 import {console} from "forge-std/src/console.sol";
 /**
  * @title MarketMaker v2
@@ -32,11 +29,10 @@ import {console} from "forge-std/src/console.sol";
  *      Supports continuous trading with automatic epoch transitions.
  */
 contract Dynamica is
-    Initializable,
-    OwnableUpgradeable,
-    ERC1155HolderUpgradeable,
-    ERC1155SupplyUpgradeable,
-    ReentrancyGuardUpgradeable,
+    Ownable,
+    ERC1155Holder,
+    ERC1155Supply,
+    ReentrancyGuard,
     IDynamica
 {
     using SafeERC20 for IERC20;
@@ -51,6 +47,7 @@ contract Dynamica is
 
     /// @notice Unit decimal for calculations (18 decimals)
     int256 public constant UNIT_DEC = 1e18;
+    uint32 public lastEpoch;
 
     // ============ State Variables ============
 
@@ -90,6 +87,10 @@ contract Dynamica is
     /// @notice Array of gamma power values for time-weighted rewards
     uint32[] public gammaPow;
 
+    address constant USER1 = address(0x10000);
+    address constant USER2 = address(0x20000);
+    address constant OWNER = address(0x30000);
+
     // ============ Mappings ============
 
     /// @notice Mapping from epoch number to epoch data
@@ -126,16 +127,66 @@ contract Dynamica is
     /// @notice Expiration time of the market
     uint32 public expirationEpoch;
 
-    uint256[50] private __gap;
+    bool public initialized;
 
     // ============ Constructor ============
 
+    constructor() ERC1155("") Ownable(msg.sender) {
+
+    }
     /**
-     * @dev Constructor that disables initializers for implementation contract
-     * @notice This prevents the implementation contract from being initialized directly
+     * @notice Initializes the market with funding and outcome configuration
+     * @param config The configuration for the market
+     * @param lmsrMathAddress Address of the LMSR math contract
+     * @dev Emits MarketInitialized event
      */
-    constructor() {
-        _disableInitializers();
+    function initialize(Config memory config, address lmsrMathAddress) public {
+        if (initialized) return;
+        initialized = true;
+        version = 1;
+
+        collateralToken = config.collateralToken;
+        fee = config.fee;
+
+        uint8 collateralTokenDecimals = IERC20Metadata(collateralToken).decimals();
+        if (collateralTokenDecimals > 18) {
+            revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
+        }
+
+        require(config.periodDuration > 0, "periodDuration=0");
+        require(config.epochDuration > 0, "epochDuration=0");
+        require(config.epochDuration % config.periodDuration == 0, "epochDuration%periodDuration!=0");
+
+        currentEpochNumber = 1;
+        currentPeriodNumber = 1;
+        epochDuration = config.epochDuration;
+        periodDuration = config.periodDuration;
+        oracleManager = config.oracle;
+        question = config.question;
+        outcomeSlotCount = config.outcomeSlotCount;
+        expirationEpoch = config.expirationEpoch;
+
+        _initializeGammaPowers(config.gamma);
+        lmsrMath = LMSRMath(lmsrMathAddress);
+
+        alpha = config.alpha;
+        expLimit = config.expLimit;
+
+        epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
+        periodStart = uint32(block.timestamp);
+
+        epochData[currentEpochNumber].funding = config.startFunding;
+
+        decimals = config.decimals;
+        decCollateral = int256(10 ** collateralTokenDecimals);
+        decQ = int256(10 ** uint32(decimals));
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            _mint(address(this), shareId(currentEpochNumber, currentPeriodNumber, i), config.outcomeTokenAmounts, "");
+            epochData[currentEpochNumber].initialTokenSupply[i] = config.outcomeTokenAmounts;
+        }
+
+        emit MarketInitialized(config.startFunding, config.question, config.outcomeTokenAmounts);
     }
 
     // ============ Modifiers ============
@@ -167,69 +218,6 @@ contract Dynamica is
         _;
     }
 
-    // ============ Initialization ============
-
-    /**
-     * @notice Initializes the market with funding and outcome configuration
-     * @param config The configuration for the market
-     * @param lmsrMathAddress Address of the LMSR math contract
-     * @dev Emits MarketInitialized event
-     */
-    function initialize(Config calldata config, address lmsrMathAddress) public initializer {
-        __Ownable_init(config.owner);
-        __ERC1155_init("");
-        __ERC1155Supply_init();
-        __ERC1155Holder_init();
-        __ReentrancyGuard_init();
-        version = 1;
-
-        collateralToken = config.collateralToken;
-        fee = config.fee;
-
-        uint8 collateralTokenDecimals = IERC20Metadata(collateralToken).decimals();
-        if (collateralTokenDecimals > 18) {
-            revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
-        }
-
-        require(config.periodDuration > 0, "periodDuration=0");
-        require(config.epochDuration > 0, "epochDuration=0");
-        require(config.epochDuration % config.periodDuration == 0, "epochDuration%periodDuration!=0");
-
-        currentEpochNumber = 1;
-        currentPeriodNumber = 1;
-        epochDuration = config.epochDuration;
-        periodDuration = config.periodDuration;
-        oracleManager = config.oracle;
-        question = config.question;
-        outcomeSlotCount = config.outcomeSlotCount;
-        expirationEpoch = config.expirationEpoch;
-
-        _initializeGammaPowers(config.gamma);
-        lmsrMath = LMSRMath(lmsrMathAddress);
-
-        alpha = config.alpha;
-        expLimit = config.expLimit;
-
-        // Initialize first epoch and period
-        epochData[currentEpochNumber].epochStart = uint32(block.timestamp);
-        periodStart = uint32(block.timestamp);
-
-        epochData[currentEpochNumber].funding = config.startFunding;
-
-        // Set decimals and initialize decimal constants
-        decimals = config.decimals;
-        decCollateral = int256(10 ** collateralTokenDecimals);
-        decQ = int256(10 ** uint32(decimals));
-
-        // Create initial outcome tokens
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            _mint(address(this), shareId(currentEpochNumber, currentPeriodNumber, i), config.outcomeTokenAmounts, "");
-            epochData[currentEpochNumber].initialTokenSupply[i] = config.outcomeTokenAmounts;
-        }
-
-        emit MarketInitialized(config.startFunding, config.question, config.outcomeTokenAmounts);
-    }
-
     // ============ External Functions ============
 
     /**
@@ -240,22 +228,20 @@ contract Dynamica is
      * @dev Emits OutcomeTokenTrade event
      */
     function makePrediction(int256[] memory deltaOutcomeAmounts_, bool isRollover)
-        external
+        public
         nonReentrant
         epochNotResolved(currentEpochNumber)
     {
-        // Update epoch and period if needed
+        require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
+
         _updateEpochAndPeriod();
 
-        // Validate input length
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
             revert InvalidLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
         }
 
-        // Validate sell amounts
         _validateSellAmounts(deltaOutcomeAmounts_, isRollover);
 
-        // Calculate net cost and process payment
         int256[] memory qCurrent = new int256[](outcomeSlotCount);
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             qCurrent[i] = int256(outcomeTokenSuppliesPerEpoch(currentEpochNumber, i));
@@ -267,14 +253,11 @@ contract Dynamica is
         bool isBuy = netCost > 0;
         uint256 cost = isBuy ? uint256(netCost) : uint256(-netCost);
 
-    
-        // Update user shares
-        _updateUserShares(msg.sender, deltaOutcomeAmounts_, isRollover);
+        _updateUserShares(tx.origin, deltaOutcomeAmounts_, isRollover);
 
-        // Handle payment and fees
         uint256 feeAmount = _handleTradePayment(cost, isBuy);
 
-        emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
+        emit OutcomeTokenTrade(tx.origin, deltaOutcomeAmounts_, netCost, feeAmount);
     }
 
     /**
@@ -284,8 +267,7 @@ contract Dynamica is
      * @dev Only callable by the oracle manager. Emits EpochResolved event.
      */
     function closeEpoch(uint256[] calldata payouts)
-        external
-        onlyOracleManager
+        public
         nonReentrant
         epochNotResolved(currentEpochNumber)
         returns (bool)
@@ -304,18 +286,19 @@ contract Dynamica is
      * @param epoch The epoch number to redeem for
      * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
      */
-    function redeemPayout(uint32 epoch) external nonReentrant epochResolved(epoch) {
+    function redeemPayout(uint32 epoch) public nonReentrant epochResolved(epoch) {
+        require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
+
         uint256 totalPayout = 0;
         uint256 periodsPerEpoch = epochDuration / periodDuration;
 
-        // Calculate payout for each outcome across all periods
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             for (uint256 j = 1; j <= periodsPerEpoch; j++) {
                 uint256 id = shareId(epoch, j, i);
-                uint256 balance = balanceOf(msg.sender, id) - blockedForUser[msg.sender][id];
+                uint256 balance = balanceOf(tx.origin, id) - blockedForUser[tx.origin][id];
                 if (balance > 0) {
                     totalPayout += (balance * gammaPow[j - 1] * epochData[epoch].basePrice[i] / uint256(decQ)) / RANGE;
-                    _burnToken(msg.sender, balance, id);
+                    _burnToken(tx.origin, balance, id);
                 }
             }
         }
@@ -324,9 +307,9 @@ contract Dynamica is
             revert NothingToRedeem();
         }
 
-        IERC20(collateralToken).safeTransfer(msg.sender, totalPayout);
+        IERC20(collateralToken).safeTransfer(tx.origin, totalPayout);
 
-        emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
+        emit PayoutRedemption(tx.origin, collateralToken, question, totalPayout);
     }
 
     /**
@@ -334,7 +317,9 @@ contract Dynamica is
      * @param user The address of the user to claim for
      * @dev Converts blocked tokens from previous epoch to new epoch tokens based on base prices
      */
-    function claimForNewEpoch(address user) external nonReentrant {
+    function claimForNewEpoch(address user) public nonReentrant {
+        require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
+
         uint256 totalPayout = 0;
         int256[] memory deltaOutcomeAmounts = new int256[](outcomeSlotCount);
         uint256 periodsPerEpoch = epochDuration / periodDuration;
@@ -368,9 +353,11 @@ contract Dynamica is
      * @dev Transfers blocked tokens from contract to user
      */
     function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
-        external
+        public
         nonReentrant
     {
+        require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
+
         uint256 length = epochs.length;
         if (length != deltaOutcomeAmounts_.length) {
             revert InvalidLength(length, deltaOutcomeAmounts_.length);
@@ -385,14 +372,14 @@ contract Dynamica is
         for (uint256 i = 0; i < length; i++) {
             for (uint256 j = 0; j < outcomeSlotCount; j++) {
                 ids[j] = shareId(epochs[i], periods[i], j);
-                if (blockedForUser[msg.sender][ids[j]] < deltaOutcomeAmounts_[i][j]) {
-                    revert InsufficientBalance(blockedForUser[msg.sender][ids[j]], deltaOutcomeAmounts_[i][j]);
+                if (blockedForUser[tx.origin][ids[j]] < deltaOutcomeAmounts_[i][j]) {
+                    revert InsufficientBalance(blockedForUser[tx.origin][ids[j]], deltaOutcomeAmounts_[i][j]);
                 }
-                blockedForUser[msg.sender][ids[j]] -= deltaOutcomeAmounts_[i][j];
+                blockedForUser[tx.origin][ids[j]] -= deltaOutcomeAmounts_[i][j];
                 blockedForEpoch[ids[j]] -= deltaOutcomeAmounts_[i][j];
             }
-            _safeBatchTransferFrom(address(this), msg.sender, ids, deltaOutcomeAmounts_[i], "");
-            emit TokensUnblocked(msg.sender, deltaOutcomeAmounts_[i], epochs[i], periods[i]);
+            _safeBatchTransferFrom(address(this), tx.origin, ids, deltaOutcomeAmounts_[i], "");
+            emit TokensUnblocked(tx.origin, deltaOutcomeAmounts_[i], epochs[i], periods[i]);
         }
     }
 
@@ -401,7 +388,7 @@ contract Dynamica is
      * @param token The address of the token to withdraw
      * @dev Only callable by owner
      */
-    function emergencyExit(address token) external onlyOwner nonReentrant {
+    function emergencyExit(address token) public onlyOwner nonReentrant {
         uint256 amount = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransfer(owner(), amount);
         emit EmergencyExit(block.timestamp, token, amount);
@@ -412,7 +399,7 @@ contract Dynamica is
      * @param epoch The epoch number
      * @return The epoch data
      */
-    function getEpochData(uint256 epoch) external view returns (IDynamica.EpochData memory) {
+    function getEpochData(uint256 epoch) public view returns (IDynamica.EpochData memory) {
         return epochData[epoch];
     }
 
@@ -440,7 +427,7 @@ contract Dynamica is
      * @param i Index of the outcome
      * @return The payout numerator
      */
-    function payoutNumerators(uint256 epoch, uint256 i) external view returns (uint256) {
+    function payoutNumerators(uint256 epoch, uint256 i) public view returns (uint256) {
         return epochData[epoch].payoutNumerators[i];
     }
 
@@ -448,7 +435,7 @@ contract Dynamica is
      * @notice Returns the payout denominator for the previous epoch
      * @return The payout denominator
      */
-    function payoutDenominator(uint256 epoch) external view returns (uint256) {
+    function payoutDenominator(uint256 epoch) public view returns (uint256) {
         return epochData[epoch].payoutDenominator;
     }
 
@@ -484,7 +471,7 @@ contract Dynamica is
      */
     function changeExpirationEpoch(uint32 newExpirationEpoch) public onlyOwner {
         if (
-            (newExpirationEpoch < currentEpochNumber && newExpirationEpoch != 0) || currentEpochNumber > expirationEpoch
+            newExpirationEpoch < currentEpochNumber && newExpirationEpoch != 0
         ) {
             revert NewExpirationEpochMustBeGreaterThanCurrentEpoch(newExpirationEpoch, currentEpochNumber);
         }
@@ -497,7 +484,7 @@ contract Dynamica is
      * @param _fee The new fee rate in basis points
      * @dev Only callable by owner. Emits FeeChanged event.
      */
-    function changeFee(uint64 _fee) external onlyOwner {
+    function changeFee(uint64 _fee) public onlyOwner {
         if (_fee >= RANGE) {
             revert FeeMustBeLessThanRange(_fee, RANGE);
         }
@@ -509,7 +496,7 @@ contract Dynamica is
      * @notice Withdraws accumulated fees to the owner
      * @dev Only callable by owner. Emits FeeWithdrawal event.
      */
-    function withdrawFee() external onlyOwner {
+    function withdrawFee() public onlyOwner {
         if (feeReceived == 0) {
             revert InsufficientBalance(0, feeReceived);
         }
@@ -530,9 +517,9 @@ contract Dynamica is
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
             if (deltaOutcomeAmounts_[i] < 0) {
-                uint256 balance = balanceOf(msg.sender, id);
+                uint256 balance = balanceOf(tx.origin, id);
                 if (isRollover) {
-                    balance = blockedForUser[msg.sender][id];
+                    balance = blockedForUser[tx.origin][id];
                 }
                 uint256 amount = uint256(-deltaOutcomeAmounts_[i]);
                 if (balance < amount) {
@@ -554,13 +541,13 @@ contract Dynamica is
             feeAmount = shouldPay - netCost;
             feeReceived += feeAmount;
             epochData[currentEpochNumber].funding += netCost;
-            IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), shouldPay);
+            IERC20(collateralToken).safeTransferFrom(tx.origin, address(this), shouldPay);
         } else {
             feeAmount = (netCost * fee) / RANGE;
             feeReceived += feeAmount;
             uint256 payoutAmount = netCost - feeAmount;
             epochData[currentEpochNumber].funding -= netCost;
-            IERC20(collateralToken).safeTransfer(msg.sender, payoutAmount);
+            IERC20(collateralToken).safeTransfer(tx.origin, payoutAmount);
         }
     }
 
@@ -599,12 +586,10 @@ contract Dynamica is
         uint256 totalPayout;
         uint256 totalPayoutRollover;
 
-        // Validate payout array length
         if (_outcomeSlotCount != outcomeSlotCount) {
             revert InvalidLength(_outcomeSlotCount, outcomeSlotCount);
         }
 
-        // Calculate payout denominator
         uint256 payoutDenominator_ = _calculatePayoutDenominator(payouts);
         if (payoutDenominator_ == 0) {
             revert PayoutIsAllZeroes();
@@ -650,6 +635,7 @@ contract Dynamica is
         }
 
         uint32 now32 = uint32(block.timestamp);
+        lastEpoch = currentEpochNumber;
         epochData[currentEpochNumber].fundingForRollover = totalPayoutRollover;
         currentEpochNumber += 1;
         currentPeriodNumber = 1;
@@ -703,14 +689,13 @@ contract Dynamica is
     function _updateEpochAndPeriod() private {
         uint32 now32 = uint32(block.timestamp);
 
-        // Check if epoch should advance
         if (now32 >= epochData[currentEpochNumber].epochStart + epochDuration) {
             revert EpochFinishedButNotResolvedYet(currentEpochNumber);
         }
 
         if (now32 < periodStart + periodDuration) return;
 
-        uint32 steps = (now32 - periodStart) / periodDuration; // >=1
+        uint32 steps = (now32 - periodStart) / periodDuration;
 
         uint32 periodsPerEpoch = epochDuration / periodDuration;
         uint32 target = currentPeriodNumber + steps;
@@ -730,10 +715,11 @@ contract Dynamica is
      * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner() private {
-        uint256 returnToOwner = epochData[currentEpochNumber].funding - epochData[currentEpochNumber].totalPayout;
-        if (IERC20(collateralToken).balanceOf(address(this)) < returnToOwner) {
-            revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), returnToOwner);
+        uint256 balance = epochData[currentEpochNumber].funding;
+        if (IERC20(collateralToken).balanceOf(address(this)) < balance) {
+            revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), balance);
         }
+        uint256 returnToOwner = balance;
         IERC20(collateralToken).safeTransfer(owner(), returnToOwner);
         emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
     }
@@ -748,7 +734,7 @@ contract Dynamica is
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(ERC1155HolderUpgradeable, ERC1155Upgradeable)
+        override(ERC1155Holder, ERC1155)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
@@ -782,19 +768,13 @@ contract Dynamica is
     function decodeShareId(uint256 id) public view returns (uint256 epoch, uint256 period, uint256 outcome) {
         uint256 periodsPerEpoch = epochDuration / periodDuration;
 
-        // Decode outcome: id % outcomeSlotCount
         outcome = id % outcomeSlotCount;
 
-        // Decode period and epoch from periodOffset
-        // periodOffset = (epoch - 1) * periodsPerEpoch * outcomeSlotCount + (period - 1) * outcomeSlotCount
         uint256 periodOffset = id - outcome;
         uint256 periodIndex = periodOffset / outcomeSlotCount;
 
-        // Decode period: periodIndex % periodsPerEpoch
-        period = (periodIndex % periodsPerEpoch) + 1; // Convert to 1-based
-
-        // Decode epoch: periodIndex / periodsPerEpoch
-        epoch = (periodIndex / periodsPerEpoch) + 1; // Convert to 1-based
+        period = (periodIndex % periodsPerEpoch) + 1;
+        epoch = (periodIndex / periodsPerEpoch) + 1;
     }
 
     /**

@@ -1,0 +1,32 @@
+testMode: "property"
+testLimit: 100000
+seqLen: 100
+shrinkLimit: 5000
+
+coverage: true
+timeout: 300
+
+# contractAddr не обязателен для локального контракта, можно убрать
+# contractAddr: "0x00a329c0648769A73afAc7F9381E08FB43dBEA72"
+
+filterFunctions: ["echidna_.*"]
+filterBlacklist: true
+
+sender:
+  - "0x10000"
+  - "0x20000"
+  - "0x30000"
+
+balanceAddr: 0xffffffffffffffff
+
+format: text
+
+solcArgs: "--optimize --optimize-runs 200"
+
+maxTimeDelay: 3600      # 1 час
+maxBlockDelay: 600       # например, 10 минут
+
+corpusDir: "echidna_corpus"
+
+# можно включить allEvents, чтобы видеть твои ErrorEpochNumberIs2 / ErrorPeriodNumberIs2
+allEvents: true
