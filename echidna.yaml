@@ -1,13 +1,10 @@
 testMode: "property"
-testLimit: 100000
-seqLen: 100
+testLimit: 1000000
+seqLen: 200
 shrinkLimit: 5000
 
 coverage: true
 timeout: 300
-
-# contractAddr не обязателен для локального контракта, можно убрать
-# contractAddr: "0x00a329c0648769A73afAc7F9381E08FB43dBEA72"
 
 filterFunctions: ["echidna_.*"]
 filterBlacklist: true
@@ -27,6 +24,3 @@ maxTimeDelay: 3600      # 1 час
 maxBlockDelay: 600       # например, 10 минут
 
 corpusDir: "echidna_corpus"
-
-# можно включить allEvents, чтобы видеть твои ErrorEpochNumberIs2 / ErrorPeriodNumberIs2
-allEvents: true

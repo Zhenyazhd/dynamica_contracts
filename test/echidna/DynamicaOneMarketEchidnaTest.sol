@@ -10,13 +10,6 @@ import {UpgradeableBeacon} from "@openzeppelin-contracts/proxy/beacon/Upgradeabl
 import {ERC1155HolderUpgradeable} from
     "@openzeppelin-contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
 
-contract UserCaller {
-    function call(address target, bytes memory data) external {
-        (bool ok,) = target.call(data);
-        require(ok);
-    }
-}
-
 contract DynamicaTimeEchidna is Dynamica {
 
     UpgradeableBeacon public BEACON;
@@ -33,6 +26,7 @@ contract DynamicaTimeEchidna is Dynamica {
     /// @notice Error event: when currentPeriodNumber becomes 2
     event ErrorPeriodNumberIs2(uint32 currentPeriod, uint256 timestamp, string context);
 
+    event ErrorFundingNotExceedBalance(uint256 balance, uint256 totalPayoutForRollover, uint256 totalPayout, uint256 feeReceived);
     event ErrorTrade(bytes reason);
 
     event GoodTrade();
@@ -126,20 +120,6 @@ contract DynamicaTimeEchidna is Dynamica {
         return true;
     }
 
-    event ErrorCollateralBalanceNotCoversFundingAndFees(uint256 bal, uint256 funding);
-    function echidna_collateral_balance_covers_funding_and_fees() public returns (bool) {
-        uint256 bal = collateral.balanceOf(address(this));
-        if(currentEpochNumber > 0){
-            IDynamica.EpochData memory data = epochData[currentEpochNumber];
-            if(bal < data.funding ){
-                emit ErrorCollateralBalanceNotCoversFundingAndFees(bal, data.funding);
-                return false;
-            }
-            return bal >= data.funding ;
-        }
-        return true;
-    }
-
     function echidna_outcome_supplies_match() public view returns (bool) {
         uint256 periodsPerEpoch = epochDuration / periodDuration;
 
@@ -176,5 +156,44 @@ contract DynamicaTimeEchidna is Dynamica {
             }
         }
         return true;
+    }
+
+    function echidna_blocked_leq_totalSupply() public view returns (bool) {
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+
+        for(uint256 i = 0; i < outcomeSlotCount; i++){
+            for(uint256 p = 1; p <= periodsPerEpoch; p++){
+                uint256 id = shareId(currentEpochNumber, p, i);
+                if(blockedForEpoch[id] > totalSupply(id)) return false;
+            }
+        }
+         
+        return true;
+    }
+
+
+    function echidna_blocked_for_user_consistent() public view returns (bool) {
+
+        address[2] memory users = [USER1, USER2];
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+        
+        for (uint256 i = 0; i < users.length; i++) {
+            address user = users[i];
+            for (uint256 o = 0; o < outcomeSlotCount; o++) {    
+                for (uint256 p = 1; p <= periodsPerEpoch; p++) {
+                    uint256 id = shareId(currentEpochNumber, p, o);
+                    if(blockedForUser[user][id] > blockedForEpoch[id] || blockedForEpoch[id] > balanceOf(address(this), id)) return false;
+                }
+            }
+        }
+        return true;
+    }
+
+
+    function echidna_funding_not_exceed_balance() public returns (bool) {
+        uint32 epoch = currentEpochNumber - 1;
+        if(redeemForEpoch[epoch] || epoch == 0 || epoch > currentEpochNumber) return true;
+        emit ErrorFundingNotExceedBalance(collateral.balanceOf(address(this)), epochData[epoch].fundingForRollover,epochData[epoch].totalPayout, feeReceived);
+        return collateral.balanceOf(address(this)) >= epochData[epoch].totalPayout + epochData[epoch].fundingForRollover + feeReceived;
     }
 }

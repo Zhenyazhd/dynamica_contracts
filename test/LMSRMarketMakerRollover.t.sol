@@ -25,7 +25,7 @@ import {console} from "forge-std/src/console.sol";
  * - Market resolution and payout distribution
  * - Balance tracking throughout the market lifecycle
  */
-contract LMSRMarketMakerSimpleTest is OracleSetUP {
+contract LMSRMarketMakerRolloverTest is OracleSetUP {
     // ============ State Variables ============
 
     address public constant OWNER = address(0xABCD);
@@ -33,7 +33,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
     uint8 constant DECIMALS = 10;
     uint8 constant DECIMALS_COLLATERAL = 10;
     uint256 constant INITIAL_SUPPLY = 500 * (10 ** DECIMALS);
-    uint256 constant START_FUNDING = 1000 * 10 ** uint256(DECIMALS_COLLATERAL);
+    uint256 constant START_FUNDING = 5000 * 10 ** uint256(DECIMALS_COLLATERAL);
 
 
     /// @notice Dynamica implementation contract
@@ -111,39 +111,6 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
 
     // ============ Test Functions ============
 
-
-    function testSetupMarketMaker() public view {
-        assertEq(marketMaker.currentEpochNumber(), 1);
-        assertEq(marketMaker.currentPeriodNumber(), 1);
-        assertEq(marketMaker.balanceOf(address(marketMaker), marketMaker.shareId(1, 1, 0)), uint256(uint64(INITIAL_SUPPLY)));
-        assertEq(marketMaker.balanceOf(address(marketMaker), marketMaker.shareId(1, 1, 1)), uint256(uint64(INITIAL_SUPPLY)));
-        assertEq(IERC20Mock(mockToken).balanceOf(address(marketMaker)), START_FUNDING);
-    }
-
-    function testEpoch() public {
-        vm.startPrank(OWNER);
-        uint256 start = block.timestamp;
-        vm.warp(start + 1 days);
-
-        marketMaker.updateEpochAndPeriod();
-        assertEq(marketMaker.currentEpochNumber(), 1);
-        assertEq(marketMaker.currentPeriodNumber(), 2);
-
-        vm.warp(block.timestamp + 4 days);
-        marketMaker.updateEpochAndPeriod();
-        assertEq(marketMaker.currentEpochNumber(), 1);
-        assertEq(marketMaker.currentPeriodNumber(), 6);
-
-        vm.warp(block.timestamp + 5 days);
-        vm.expectRevert(abi.encodeWithSelector(IDynamica.EpochFinishedButNotResolvedYet.selector, 1));
-        marketMaker.updateEpochAndPeriod();
-
-        marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-        marketMaker.updateEpochAndPeriod();
-        assertEq(marketMaker.currentEpochNumber(), 2);
-        assertEq(marketMaker.currentPeriodNumber(), 1);
-    }
-
     /**
      * @notice Tests the complete market lifecycle
      * @dev Tests market creation, multiple trades, resolution, and payout distribution
@@ -156,12 +123,31 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         startBalances[4] = IERC20Mock(mockToken).balanceOf(address(marketMaker));
 
         vm.warp(block.timestamp + 2 days);
+    
         vm.prank(OWNER);
         marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
-        console.log('currentEpochNumber_after_resolve', marketMaker.getEpochData(2).payoutDenominator);
-
+        
         _redeemPayoutsForTraders(1); 
-        _redeemPayoutsForTraders(2);
+        _redeemPayoutsForTraders(2); 
+
+        vm.warp(block.timestamp + 10 days);
+    
+        vm.prank(OWNER);
+        marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
+        console.log('currentEpochNumber_after_resolve', marketMaker.currentEpochNumber());
+
+
+        vm.warp(block.timestamp + 10 days);
+        vm.prank(OWNER);
+        marketResolutionManager.resolveMarket(keccak256(bytes("eth/btc")));
+        console.log('currentEpochNumber_after_resolve', marketMaker.currentEpochNumber());
+
+        _redeemBlockedTokensForTraders(1);
+        _redeemBlockedTokensForTraders(2);
+
+        vm.prank(OWNER);
+        marketMaker.withdrawFee();
+        vm.prank(OWNER);
         _displayBalanceComparison(startBalances);
     }
 
@@ -222,18 +208,18 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
                 outcomeSlotCount: 2,
                 startFunding: START_FUNDING,
                 outcomeTokenAmounts: INITIAL_SUPPLY,
-                fee: 0,
+                fee: 100,
                 alpha: 3,
                 expLimit: 12750,
                 decimals: DECIMALS,
-                expirationEpoch: 2,
+                expirationEpoch: 4,
                 gamma: 9000,
                 epochDuration: 10 days,
                 periodDuration: 1 days
             }),
             IMarketResolutionModule.MarketResolutionConfig({
                 marketMaker: address(0),
-                outcomeSlotCount: 5,
+                outcomeSlotCount: 2,
                 resolutionModule: address(0),
                 resolutionData: abi.encode(chainlinkConfig),
                 isResolved: false,
@@ -294,7 +280,7 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      */
     function _executeTradingSequence() private {
         address[] memory traders = _getTraderSequence();
-        int256[][] memory amounts = _getTradeAmounts();
+        (int256[][] memory amounts, bool[] memory isRollover) = _getTradeAmounts();
         uint t = 0;
         uint256[] memory periods = new uint256[](5);
         periods[0] = 2 days;
@@ -320,14 +306,24 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
             int256 mockBalance = int256(IERC20Mock(mockToken).balanceOf(traders[i]));
             marketMaker.setApprovalForAll(address(marketMaker), true);
             IERC20Mock(mockToken).approve(address(marketMaker), 1_000 * 10 ** uint256(uint64(DECIMALS_COLLATERAL)));
-            marketMaker.makePrediction(amounts[i], false);
+            
+            if(isRollover[i]){
+                console.log('redeming blocked tokens',amounts[i][0]);
+                console.log('redeming blocked tokens',amounts[i][1]);
+                console.log('epoch', marketMaker.blockedForUser(traders[i], marketMaker.shareId(marketMaker.currentEpochNumber(), marketMaker.currentPeriodNumber(), 0)));
+                console.log('epoch', marketMaker.blockedForUser(traders[i], marketMaker.shareId(marketMaker.currentEpochNumber(), marketMaker.currentPeriodNumber(), 1)));
+            } 
+            
+            marketMaker.makePrediction(amounts[i], isRollover[i]);
+
             console.log('_________________________________________________');
             console.log('trader', traders[i]);
+            console.log('isRollover', isRollover[i]);
             console.log('epoch', marketMaker.currentEpochNumber());
             console.log('period', marketMaker.currentPeriodNumber());
             console.log('amounts_0', amounts[i][0]);
             console.log('amounts_1', amounts[i][1]);
-            console.log('balance', mockBalance - int256(IERC20Mock(mockToken).balanceOf(traders[i])));
+            console.log('payed or recieved', mockBalance - int256(IERC20Mock(mockToken).balanceOf(traders[i])));
             console.log('_________________________________________________');
             vm.stopPrank();
         }
@@ -367,88 +363,109 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
      * @notice Gets the predefined trade amounts for testing
      * @return amounts Array of trade amounts for each trader
      */
-    function _getTradeAmounts() private pure returns (int256[][] memory amounts) {
+    function _getTradeAmounts() private pure returns (int256[][] memory amounts, bool[] memory isRollover) {
         amounts = new int256[][](20);
+        isRollover = new bool[](20);
 
         amounts[0] = new int256[](2);
         amounts[0][0] = 67 * int256(10 ** DECIMALS);
         amounts[0][1] = 18 * int256(10 ** DECIMALS);
+        isRollover[0] = true;
 
         amounts[1] = new int256[](2);
         amounts[1][0] = 40 * int256(10 ** DECIMALS);
         amounts[1][1] = 99 * int256(10 ** DECIMALS);
+        isRollover[1] = false;
 
         amounts[2] = new int256[](2);
         amounts[2][0] = 77 * int256(10 ** DECIMALS);
         amounts[2][1] = 93 * int256(10 ** DECIMALS);
+        isRollover[2] = true;
 
         amounts[3] = new int256[](2);
         amounts[3][0] = 64 * int256(10 ** DECIMALS);
         amounts[3][1] = 83 * int256(10 ** DECIMALS);
+        isRollover[3] = false;
 
         amounts[4] = new int256[](2);
         amounts[4][0] = -39 * int256(10 ** DECIMALS);
         amounts[4][1] = 4 * int256(10 ** DECIMALS);
+        isRollover[4] = true;
 
         amounts[5] = new int256[](2);
         amounts[5][0] = -37 * int256(10 ** DECIMALS);
         amounts[5][1] = 21 * int256(10 ** DECIMALS);
+        isRollover[5] = false;
 
         amounts[6] = new int256[](2);
         amounts[6][0] = 70 * int256(10 ** DECIMALS);
         amounts[6][1] = 89 * int256(10 ** DECIMALS);
+        isRollover[6] = true;
 
         amounts[7] = new int256[](2);
         amounts[7][0] = -17 * int256(10 ** DECIMALS);
         amounts[7][1] = 38 * int256(10 ** DECIMALS);
+        isRollover[7] = true;
 
         amounts[8] = new int256[](2);
         amounts[8][0] = -22 * int256(10 ** DECIMALS);
         amounts[8][1] = 60 * int256(10 ** DECIMALS);
+        isRollover[8] = true;      
 
         amounts[9] = new int256[](2);
         amounts[9][0] = 20 * int256(10 ** DECIMALS);
         amounts[9][1] = 77 * int256(10 ** DECIMALS);
+        isRollover[9] = false;
 
         amounts[10] = new int256[](2);
         amounts[10][0] = 34 * int256(10 ** DECIMALS);
         amounts[10][1] = 67 * int256(10 ** DECIMALS);
+        isRollover[10] = false;
 
         amounts[11] = new int256[](2);
         amounts[11][0] = 96 * int256(10 ** DECIMALS);
         amounts[11][1] = -31 * int256(10 ** DECIMALS);
+        isRollover[11] = false;
 
         amounts[12] = new int256[](2);
         amounts[12][0] = 56 * int256(10 ** DECIMALS);
         amounts[12][1] = 32 * int256(10 ** DECIMALS);
+        isRollover[12] = true;
 
         amounts[13] = new int256[](2);
         amounts[13][0] = 93 * int256(10 ** DECIMALS);
         amounts[13][1] = 18 * int256(10 ** DECIMALS);
+        isRollover[13] = false;
 
         amounts[14] = new int256[](2);
-        amounts[14][0] = -44 * int256(10 ** DECIMALS);
+        amounts[14][0] = 44 * int256(10 ** DECIMALS);
         amounts[14][1] = 79 * int256(10 ** DECIMALS);
-
+        isRollover[14] = true;
+        
         amounts[15] = new int256[](2);
         amounts[15][0] = 49 * int256(10 ** DECIMALS);
         amounts[15][1] = -1 * int256(10 ** DECIMALS);
+        isRollover[15] = true;
 
         amounts[16] = new int256[](2);
         amounts[16][0] = 35 * int256(10 ** DECIMALS);
         amounts[16][1] = 28 * int256(10 ** DECIMALS);
+        isRollover[16] = true;
 
         amounts[17] = new int256[](2);
         amounts[17][0] = 83 * int256(10 ** DECIMALS);
         amounts[17][1] = 7 * int256(10 ** DECIMALS);
+        isRollover[17] = false;
 
         amounts[18] = new int256[](2);
         amounts[18][0] = -9 * int256(10 ** DECIMALS);
         amounts[18][1] = -4 * int256(10 ** DECIMALS);
+        isRollover[18] = false;
 
         amounts[19] = new int256[](2);
         amounts[19][0] = 39 * int256(10 ** DECIMALS);
         amounts[19][1] = 79 * int256(10 ** DECIMALS);
+        isRollover[19] = false;
     }
 
     /**
@@ -461,10 +478,35 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         traders[2] = trader2;
         traders[3] = trader3;
 
+        uint256 balance;
         for (uint256 i = 0; i < 4; i++) {
-            console.log("redeeming", i);
+            for (uint256 l = 0; l < marketMaker.outcomeSlotCount(); l++) {
+                for (uint256 j = 1; j <= 10; j++) {
+                    uint256 id = marketMaker.shareId(epoch, j, l);
+                    balance += marketMaker.balanceOf(traders[i], id);
+               }
+            }
+            if(balance > 0) {
+                console.log("redeeming", i);
+                vm.prank(traders[i]);
+                marketMaker.redeemPayout(epoch);
+                balance = 0;
+            } else {
+                console.log("no balance to redeem", i);
+            }
+        }
+    }
+
+    function _redeemBlockedTokensForTraders(uint32 epoch) private {
+        address[] memory traders = new address[](4);
+        traders[0] = trader0;
+        traders[1] = trader1;
+        traders[2] = trader2;
+        traders[3] = trader3;
+        
+        for (uint256 i = 0; i < 4; i++) {
             vm.prank(traders[i]);
-            marketMaker.redeemPayout(epoch);
+            marketMaker.redeemBlockedTokens(epoch);
         }
     }
 
@@ -492,4 +534,6 @@ contract LMSRMarketMakerSimpleTest is OracleSetUP {
         console.log("startBalances", startBalances[4]);
         console.log("endBalances", endBalances[4]);
     }
+
+    // redeemBlockedTokens(address user, uint32 epoch)
 }

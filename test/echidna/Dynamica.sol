@@ -91,6 +91,8 @@ contract Dynamica is
     address constant USER2 = address(0x20000);
     address constant OWNER = address(0x30000);
 
+    mapping(uint256 => bool) public redeemForEpoch;
+
     // ============ Mappings ============
 
     /// @notice Mapping from epoch number to epoch data
@@ -145,6 +147,15 @@ contract Dynamica is
         initialized = true;
         version = 1;
 
+        if (config.owner == address(0)) revert ZeroAddress("owner");
+        if (config.collateralToken == address(0)) revert ZeroAddress("collateralToken");
+        if (config.oracle == address(0)) revert ZeroAddress("oracle");
+        if (config.outcomeSlotCount == 0 || config.outcomeSlotCount > MAX_SLOT_COUNT) {
+            revert InvalidOutcomeSlotCount(config.outcomeSlotCount, MAX_SLOT_COUNT);
+        }
+        if (owner() != config.owner) {
+            _transferOwnership(config.owner);
+        }
         collateralToken = config.collateralToken;
         fee = config.fee;
 
@@ -153,9 +164,11 @@ contract Dynamica is
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
 
-        require(config.periodDuration > 0, "periodDuration=0");
-        require(config.epochDuration > 0, "epochDuration=0");
-        require(config.epochDuration % config.periodDuration == 0, "epochDuration%periodDuration!=0");
+        if (config.periodDuration == 0) revert InvalidDuration("periodDuration");
+        if (config.epochDuration == 0) revert InvalidDuration("epochDuration");
+        if (config.epochDuration % config.periodDuration != 0) {
+            revert InvalidDuration("epochDuration%periodDuration");
+        }
 
         currentEpochNumber = 1;
         currentPeriodNumber = 1;
@@ -182,8 +195,10 @@ contract Dynamica is
         decQ = int256(10 ** uint32(decimals));
 
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            _mint(address(this), shareId(currentEpochNumber, currentPeriodNumber, i), config.outcomeTokenAmounts, "");
-            epochData[currentEpochNumber].initialTokenSupply[i] = config.outcomeTokenAmounts;
+            uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
+            _mint(address(this), id, config.outcomeTokenAmounts, "");
+            blockedForEpoch[id] = config.outcomeTokenAmounts;
+            blockedForUser[address(this)][id] = config.outcomeTokenAmounts;
         }
 
         emit MarketInitialized(config.startFunding, config.question, config.outcomeTokenAmounts);
@@ -234,6 +249,10 @@ contract Dynamica is
     {
         require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
 
+        if(isRollover && currentEpochNumber + 1 == expirationEpoch) {
+            revert RolloverNotAllowedAfterExpiration();
+        }
+        
         _updateEpochAndPeriod();
 
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
@@ -288,7 +307,7 @@ contract Dynamica is
      */
     function redeemPayout(uint32 epoch) public nonReentrant epochResolved(epoch) {
         require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
-
+        redeemForEpoch[epoch] = true;
         uint256 totalPayout = 0;
         uint256 periodsPerEpoch = epochDuration / periodDuration;
 
@@ -314,85 +333,41 @@ contract Dynamica is
 
     /**
      * @notice Claims tokens for a new epoch based on blocked tokens from previous epoch
-     * @param user The address of the user to claim for
+     * @param epoch The epoch number to claim for
      * @dev Converts blocked tokens from previous epoch to new epoch tokens based on base prices
      */
-    function claimForNewEpoch(address user) public nonReentrant {
+    function redeemBlockedTokens(uint32 epoch) public nonReentrant epochResolved(epoch + 1) {
         require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
-
-        uint256 totalPayout = 0;
-        int256[] memory deltaOutcomeAmounts = new int256[](outcomeSlotCount);
-        uint256 periodsPerEpoch = epochDuration / periodDuration;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
-                uint256 id = shareId(currentEpochNumber - 1, j, i);
-                uint256 balance = blockedForUser[user][id];
-                blockedForUser[user][id] = 0;
-                blockedForEpoch[id] -= balance;
-                totalPayout +=
-                    (balance * gammaPow[j - 1] * epochData[currentEpochNumber - 1].basePrice[i] / uint256(decQ)) / RANGE;
-            }
-            if (totalPayout > 0 && epochData[currentEpochNumber].basePrice[i] > 0) {
-                deltaOutcomeAmounts[i] =
-                    int256((totalPayout * uint256(decQ)) / epochData[currentEpochNumber].basePrice[i]);
-            } else {
-                deltaOutcomeAmounts[i] = 0;
-            }
-            totalPayout = 0;
-        }
-        _updateUserShares(user, deltaOutcomeAmounts, true);
-
-        emit ClaimForNewEpoch(user, deltaOutcomeAmounts, currentEpochNumber, currentPeriodNumber);
+        redeemForEpoch[epoch] = true;
+        _redeemBlocked(tx.origin, epoch, tx.origin);
     }
 
     /**
      * @notice Unblocks tokens for a given epoch and period
      * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-     * @param epochs Array of epochs
-     * @param periods Array of periods
+     * @param epoch The epoch number
+     * @param period The period number
      * @dev Transfers blocked tokens from contract to user
      */
-    function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
+    function unblockTokens(uint256[] memory deltaOutcomeAmounts_, uint32 epoch, uint32 period)
         public
         nonReentrant
     {
         require(msg.sender == USER1 || msg.sender == USER2, "Only user1 or user2 can trade");
 
-        uint256 length = epochs.length;
-        if (length != deltaOutcomeAmounts_.length) {
-            revert InvalidLength(length, deltaOutcomeAmounts_.length);
-        }
-        if (length != epochs.length) {
-            revert InvalidLength(length, epochs.length);
-        }
-        if (length != periods.length) {
-            revert InvalidLength(length, periods.length);
-        }
         uint256[] memory ids = new uint256[](outcomeSlotCount);
-        for (uint256 i = 0; i < length; i++) {
-            for (uint256 j = 0; j < outcomeSlotCount; j++) {
-                ids[j] = shareId(epochs[i], periods[i], j);
-                if (blockedForUser[tx.origin][ids[j]] < deltaOutcomeAmounts_[i][j]) {
-                    revert InsufficientBalance(blockedForUser[tx.origin][ids[j]], deltaOutcomeAmounts_[i][j]);
-                }
-                blockedForUser[tx.origin][ids[j]] -= deltaOutcomeAmounts_[i][j];
-                blockedForEpoch[ids[j]] -= deltaOutcomeAmounts_[i][j];
+        for (uint256 j = 0; j < outcomeSlotCount; j++) {
+            ids[j] = shareId(epoch, period, j);
+            if (blockedForUser[tx.origin][ids[j]] < deltaOutcomeAmounts_[j]) {
+                revert InsufficientBalance(blockedForUser[tx.origin][ids[j]], deltaOutcomeAmounts_[j]);
             }
-            _safeBatchTransferFrom(address(this), tx.origin, ids, deltaOutcomeAmounts_[i], "");
-            emit TokensUnblocked(tx.origin, deltaOutcomeAmounts_[i], epochs[i], periods[i]);
+            blockedForUser[tx.origin][ids[j]] -= deltaOutcomeAmounts_[j];
+            blockedForEpoch[ids[j]] -= deltaOutcomeAmounts_[j];
         }
+        _safeBatchTransferFrom(address(this), tx.origin, ids, deltaOutcomeAmounts_, "");
+        emit TokensUnblocked(tx.origin, deltaOutcomeAmounts_, epoch,period);
     }
 
-    /**
-     * @notice Emergency exit function to withdraw all tokens of a specific type
-     * @param token The address of the token to withdraw
-     * @dev Only callable by owner
-     */
-    function emergencyExit(address token) public onlyOwner nonReentrant {
-        uint256 amount = IERC20(token).balanceOf(address(this));
-        IERC20(token).safeTransfer(owner(), amount);
-        emit EmergencyExit(block.timestamp, token, amount);
-    }
 
     /**
      * @notice Returns the epoch data for a given epoch
@@ -471,7 +446,7 @@ contract Dynamica is
      */
     function changeExpirationEpoch(uint32 newExpirationEpoch) public onlyOwner {
         if (
-            newExpirationEpoch < currentEpochNumber && newExpirationEpoch != 0
+            newExpirationEpoch < currentEpochNumber + 1 && newExpirationEpoch != 0
         ) {
             revert NewExpirationEpochMustBeGreaterThanCurrentEpoch(newExpirationEpoch, currentEpochNumber);
         }
@@ -581,15 +556,17 @@ contract Dynamica is
         }
     }
 
-    function _closeEpoch(uint256[] calldata payouts) private {
+    function _closeEpoch(uint256[] calldata payouts) internal {
         uint256 _outcomeSlotCount = payouts.length;
         uint256 totalPayout;
         uint256 totalPayoutRollover;
-
+        uint256 newTokenId;
+        // Validate payout array length
         if (_outcomeSlotCount != outcomeSlotCount) {
             revert InvalidLength(_outcomeSlotCount, outcomeSlotCount);
         }
 
+        // Calculate payout denominator
         uint256 payoutDenominator_ = _calculatePayoutDenominator(payouts);
         if (payoutDenominator_ == 0) {
             revert PayoutIsAllZeroes();
@@ -600,51 +577,89 @@ contract Dynamica is
 
         uint256[] memory totalWeightedShares = new uint256[](_outcomeSlotCount);
         uint256 periodsPerEpoch = epochDuration / periodDuration;
-
+        uint256 totalPayoutRollover_i;
+        uint256 outcomeTokenAmount_i;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
             epochData[currentEpochNumber].basePrice[i] = (payouts[i] * uint256(decCollateral)) /  epochData[currentEpochNumber].payoutDenominator;
             for (uint256 j = 1; j <= periodsPerEpoch; j++) {
-                uint256 outcomeTokenAmountI = outcomeTokenSupplies(currentEpochNumber, j, i);
-                if (outcomeTokenAmountI != 0) {
-                    totalWeightedShares[i] += ((outcomeTokenAmountI * gammaPow[j - 1]) / RANGE);
-                }
-                uint256 tokenId = shareId(currentEpochNumber, j, i);
-                uint256 balance = blockedForEpoch[tokenId];
-                if (balance > 0) {
-                    totalPayoutRollover += (
-                        (balance * gammaPow[j - 1] * epochData[currentEpochNumber].basePrice[i] / uint256(decCollateral)) / RANGE
-                    );
-                }
-            }
-            totalPayoutRollover = totalPayoutRollover * uint256(decQ) / uint256(decCollateral);
-            if (totalWeightedShares[i] != 0) {
-                totalPayout += (
-                    (
-                        (totalWeightedShares[i] - epochData[currentEpochNumber].initialTokenSupply[i]) * payouts[i]
-                            * uint256(decQ)
-                    ) / payoutDenominator_
-                );
-            }
+                newTokenId = shareId(currentEpochNumber, j, i);
+                outcomeTokenAmount_i = outcomeTokenSupplies(currentEpochNumber, j, i) - blockedForEpoch[newTokenId];
 
-            epochData[currentEpochNumber + 1].initialTokenSupply[i] = ((epochData[currentEpochNumber].funding + totalPayoutRollover - totalPayout) * uint256(decCollateral) / epochData[currentEpochNumber].basePrice[i]) * uint256(decCollateral) / uint256(decQ);
- 
-            uint256 newTokenId = shareId(currentEpochNumber + 1, 1, i);
-            _mint(address(this), newTokenId, epochData[currentEpochNumber + 1].initialTokenSupply[i], "");
-            blockedForEpoch[newTokenId] += (totalPayoutRollover * uint256(decCollateral) / epochData[currentEpochNumber].basePrice[i]) * uint256(decQ) / uint256(decCollateral);
+                if (outcomeTokenAmount_i != 0) {
+                    totalWeightedShares[i] += (outcomeTokenAmount_i * gammaPow[j - 1]);
+                }
+                totalPayoutRollover_i += blockedForEpoch[newTokenId]; 
+                _burn(address(this), newTokenId, blockedForEpoch[newTokenId]);
+            }
+            totalPayoutRollover += (totalPayoutRollover_i - blockedForUser[address(this)][shareId(currentEpochNumber, 1, i)]) * epochData[currentEpochNumber].basePrice[i]; // decQ * decColl   
+            totalPayoutRollover_i = 0;
+            totalWeightedShares[i] /= RANGE;
+            totalPayout += totalWeightedShares[i] * epochData[currentEpochNumber].basePrice[i];
         }
+        totalPayoutRollover /= uint256(decQ);
+        totalPayout /= uint256(decQ);
 
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            newTokenId = shareId(currentEpochNumber + 1, 1, i);
+            blockedForEpoch[newTokenId] += totalPayoutRollover * uint256(decQ) / epochData[currentEpochNumber].basePrice[i];
+            _mint(address(this), newTokenId, blockedForEpoch[newTokenId], "");
+        }
         uint32 now32 = uint32(block.timestamp);
-        lastEpoch = currentEpochNumber;
         epochData[currentEpochNumber].fundingForRollover = totalPayoutRollover;
+        epochData[currentEpochNumber].totalPayout = totalPayout;
+        lastEpoch = currentEpochNumber;
+
         currentEpochNumber += 1;
         currentPeriodNumber = 1;
         epochData[currentEpochNumber].epochStart = now32;
         epochData[currentEpochNumber].funding =
-            epochData[currentEpochNumber - 1].funding + totalPayoutRollover - totalPayout;
-
+            epochData[currentEpochNumber - 1].funding - totalPayout;
         periodStart = now32;
-        epochData[currentEpochNumber].totalPayout = totalPayout;
+    }
+
+
+    function _redeemBlocked(address user, uint32 epoch, address to) internal {
+        uint256 totalPayout;
+        uint256 id;
+        uint256 balance;
+        uint256[] memory totalPayoutPerOutcome = new uint256[](outcomeSlotCount);
+        uint256[] memory deltaOutcomeAmounts = new uint256[](outcomeSlotCount);
+        uint256 periodsPerEpoch = epochDuration / periodDuration;
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                id = shareId(epoch, j, i);
+                balance = blockedForUser[user][id];
+                blockedForUser[user][id] = 0;
+                totalPayoutPerOutcome[i] += balance;
+            }
+            deltaOutcomeAmounts[i] = totalPayoutPerOutcome[i];
+        }
+
+        for (uint256 e = epoch; e < currentEpochNumber; e++) {
+            for (uint256 i = 0; i < outcomeSlotCount; i++) {
+                totalPayout += (deltaOutcomeAmounts[i] * epochData[e].basePrice[i]);
+            }
+
+            if (totalPayout > 0) {
+                for (uint256 i = 0; i < outcomeSlotCount; i++) {
+                    deltaOutcomeAmounts[i] = totalPayout / epochData[e].basePrice[i];
+                }
+                if (e != currentEpochNumber - 1) totalPayout = 0;
+            }
+        }
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            id = shareId(currentEpochNumber, 1, i);
+            uint256 amount = deltaOutcomeAmounts[i];
+            if (amount == 0) continue;
+            blockedForEpoch[id] -= amount;
+            _burnToken(address(this), amount, id);
+        }
+
+        IERC20(collateralToken).safeTransfer(to, totalPayout / uint256(decQ));
+        emit ClaimForNewEpoch(user, deltaOutcomeAmounts, currentEpochNumber, currentPeriodNumber);
     }
 
     /**
@@ -715,15 +730,13 @@ contract Dynamica is
      * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner() private {
-        uint256 balance = epochData[currentEpochNumber].funding;
-        if (IERC20(collateralToken).balanceOf(address(this)) < balance) {
-            revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), balance);
+        uint256 returnToOwner = epochData[currentEpochNumber].funding - epochData[currentEpochNumber-1].fundingForRollover;
+        if (IERC20(collateralToken).balanceOf(address(this)) < returnToOwner) {
+            revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), returnToOwner);
         }
-        uint256 returnToOwner = balance;
         IERC20(collateralToken).safeTransfer(owner(), returnToOwner);
         emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
     }
-
     // ============ Override Functions ============
 
     /**

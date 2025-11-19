@@ -20,8 +20,8 @@ contract LMSRMath {
             sum = sum.add(q[i]);
         }
         b = sum.mul(alpha);
-        // TODO: check if sometimes b == sd(0)???????
         // Ensure b is never zero to prevent division by zero
+        // This can occur when all quantities are zero, so we set a minimum value
         b = b == sd(0) ? sd(1) : b;
     }
 

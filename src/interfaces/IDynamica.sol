@@ -94,10 +94,17 @@ interface IDynamica {
     /// @param deltaOutcomeAmounts Array of token amount changes for each outcome
     /// @param epoch The epoch number
     /// @param period The period number
-    event ClaimForNewEpoch(address indexed user, int256[] deltaOutcomeAmounts, uint32 epoch, uint32 period);
+    event ClaimForNewEpoch(address indexed user, uint256[] deltaOutcomeAmounts, uint32 epoch, uint32 period);
 
     // ============ Errors ============
 
+
+    /// @notice Thrown when a zero address is supplied where not allowed
+    error ZeroAddress(string parameter);
+    /// @notice Thrown when the provided outcome slot count exceeds the supported maximum
+    error InvalidOutcomeSlotCount(uint256 provided, uint256 maxSupported);
+    /// @notice Thrown when the provided duration parameter is zero
+    error InvalidDuration(string parameter);
     /// @notice Thrown if collateral token decimals are too high
     error CollateralTokenDecimalsTooHigh(uint8 providedDecimals);
     /// @notice Thrown if an invalid outcome index is provided
@@ -132,6 +139,8 @@ interface IDynamica {
     error MarketExpired();
     /// @notice Thrown if the new expiration epoch is less than the current epoch
     error NewExpirationEpochMustBeGreaterThanCurrentEpoch(uint32 newExpirationEpoch, uint32 currentEpoch);
+    /// @notice Thrown if rollover is not allowed after expiration
+    error RolloverNotAllowedAfterExpiration();
 
     // ============ Structs ============
 
@@ -179,15 +188,12 @@ interface IDynamica {
         uint256 funding;
         /// @notice Funding for rollover
         uint256 fundingForRollover;
+        /// @notice Total payout
+        uint256 totalPayout;
         /// @notice Array of base prices for each outcome
         uint256[10] basePrice;
         /// @notice Array of payout numerators for each outcome
         uint256[10] payoutNumerators;
-        /// @notice Array of supplies for each outcome token
-        uint256[10] initialTokenSupply;
-
-        uint256 totalPayout;
-        /// @notice Array of blocked tokens for each outcome
     }
 
     // ============ State Variables ============
@@ -238,16 +244,9 @@ interface IDynamica {
     /// @notice Redeems payout for resolved condition
     function redeemPayout(uint32 epoch) external;
 
-    /// @notice Unblocks tokens for a given epoch and period
-    /// @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-    /// @param epochs Array of epochs
-    /// @param periods Array of periods
-    function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
-        external;
-
     /// @notice Claims tokens for a new epoch based on blocked tokens from previous epoch
-    /// @param user The address of the user to claim for
-    function claimForNewEpoch(address user) external;
+    /// @param epoch The epoch number to redeem for
+    function redeemBlockedTokens(uint32 epoch) external;
 
     /// @notice Updates the current epoch and period based on elapsed time
     /// @dev Only callable by owner
@@ -257,11 +256,6 @@ interface IDynamica {
     /// @param newExpirationEpoch The new expiration epoch
     /// @dev Only callable by owner
     function changeExpirationEpoch(uint32 newExpirationEpoch) external;
-
-    /// @notice Emergency exit function to withdraw all tokens of a specific type
-    /// @param token The address of the token to withdraw
-    /// @dev Only callable by owner
-    function emergencyExit(address token) external;
 
     // ============ Public Functions ============
 

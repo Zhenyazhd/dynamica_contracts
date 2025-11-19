@@ -22,8 +22,8 @@ import {ERC1155HolderUpgradeable} from
 import {ERC1155SupplyUpgradeable} from
     "@openzeppelin-contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin-contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+
 import {LMSRMath} from "./LMSRMath.sol";
-import {console} from "forge-std/src/console.sol";
 /**
  * @title MarketMaker v2
  * @dev A perpetual prediction market maker contract that allows users to buy and sell outcome tokens.
@@ -44,7 +44,7 @@ contract Dynamica is
     // ============ Constants ============
 
     /// @notice Maximum number of outcome slots supported
-    uint256 constant MAX_SLOT_COUNT = 10;
+    uint256 internal constant MAX_SLOT_COUNT = 10;
 
     /// @notice Maximum fee/gamma that can be set (100% in basis points)
     uint32 public constant RANGE = 10_000;
@@ -183,6 +183,16 @@ contract Dynamica is
         __ReentrancyGuard_init();
         version = 1;
 
+        if (config.owner == address(0)) revert ZeroAddress("owner");
+        if (config.collateralToken == address(0)) revert ZeroAddress("collateralToken");
+        if (config.oracle == address(0)) revert ZeroAddress("oracle");
+        if (config.outcomeSlotCount == 0 || config.outcomeSlotCount > MAX_SLOT_COUNT) {
+            revert InvalidOutcomeSlotCount(config.outcomeSlotCount, MAX_SLOT_COUNT);
+        }
+        if (config.periodDuration == 0) revert InvalidDuration("periodDuration");
+        if (config.epochDuration == 0) revert InvalidDuration("epochDuration");
+        if (config.epochDuration % config.periodDuration != 0) revert InvalidDuration("epochDuration%periodDuration");
+
         collateralToken = config.collateralToken;
         fee = config.fee;
 
@@ -190,10 +200,6 @@ contract Dynamica is
         if (collateralTokenDecimals > 18) {
             revert CollateralTokenDecimalsTooHigh(collateralTokenDecimals);
         }
-
-        require(config.periodDuration > 0, "periodDuration=0");
-        require(config.epochDuration > 0, "epochDuration=0");
-        require(config.epochDuration % config.periodDuration == 0, "epochDuration%periodDuration!=0");
 
         currentEpochNumber = 1;
         currentPeriodNumber = 1;
@@ -224,7 +230,8 @@ contract Dynamica is
         // Create initial outcome tokens
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             _mint(address(this), shareId(currentEpochNumber, currentPeriodNumber, i), config.outcomeTokenAmounts, "");
-            epochData[currentEpochNumber].initialTokenSupply[i] = config.outcomeTokenAmounts;
+            blockedForEpoch[shareId(currentEpochNumber, currentPeriodNumber, i)] = config.outcomeTokenAmounts;
+            blockedForUser[address(this)][shareId(currentEpochNumber, currentPeriodNumber, i)] = config.outcomeTokenAmounts;
         }
 
         emit MarketInitialized(config.startFunding, config.question, config.outcomeTokenAmounts);
@@ -239,21 +246,26 @@ contract Dynamica is
      * @param isRollover Whether this is a rollover trade
      * @dev Emits OutcomeTokenTrade event
      */
-    function makePrediction(int256[] memory deltaOutcomeAmounts_, bool isRollover)
+    function makePrediction(int256[] calldata deltaOutcomeAmounts_, bool isRollover)
         external
         nonReentrant
         epochNotResolved(currentEpochNumber)
     {
         // Update epoch and period if needed
+        if(isRollover && currentEpochNumber + 1 == expirationEpoch) {
+            revert RolloverNotAllowedAfterExpiration();
+        }
+
         _updateEpochAndPeriod();
 
         // Validate input length
         if (deltaOutcomeAmounts_.length != outcomeSlotCount) {
             revert InvalidLength(deltaOutcomeAmounts_.length, outcomeSlotCount);
         }
+        address user = msg.sender;
 
         // Validate sell amounts
-        _validateSellAmounts(deltaOutcomeAmounts_, isRollover);
+        _validateSellAmounts(deltaOutcomeAmounts_, user, isRollover);
 
         // Calculate net cost and process payment
         int256[] memory qCurrent = new int256[](outcomeSlotCount);
@@ -266,15 +278,13 @@ contract Dynamica is
         ) / decQ;
         bool isBuy = netCost > 0;
         uint256 cost = isBuy ? uint256(netCost) : uint256(-netCost);
-
-    
         // Update user shares
-        _updateUserShares(msg.sender, deltaOutcomeAmounts_, isRollover);
+        _updateUserShares(user, deltaOutcomeAmounts_, isRollover);
 
         // Handle payment and fees
-        uint256 feeAmount = _handleTradePayment(cost, isBuy);
+        uint256 feeAmount = _handleTradePayment(cost, user, isBuy);
 
-        emit OutcomeTokenTrade(msg.sender, deltaOutcomeAmounts_, netCost, feeAmount);
+        emit OutcomeTokenTrade(user, deltaOutcomeAmounts_, netCost, feeAmount);
     }
 
     /**
@@ -293,6 +303,7 @@ contract Dynamica is
         _closeEpoch(payouts);
         if (expirationEpoch != 0 && currentEpochNumber > expirationEpoch) {
             _sendMarketsSharesToOwner();
+            emit EpochResolved(msg.sender, payouts, epochData[currentEpochNumber - 1].payoutDenominator);
             return true;
         }
         emit EpochResolved(msg.sender, payouts, epochData[currentEpochNumber - 1].payoutDenominator);
@@ -305,17 +316,19 @@ contract Dynamica is
      * @dev Calculates payout based on user's shares and resolved outcome ratios. Emits PayoutRedemption event.
      */
     function redeemPayout(uint32 epoch) external nonReentrant epochResolved(epoch) {
-        uint256 totalPayout = 0;
+        uint256 totalPayout;
         uint256 periodsPerEpoch = epochDuration / periodDuration;
+        address user = msg.sender;
+
 
         // Calculate payout for each outcome across all periods
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             for (uint256 j = 1; j <= periodsPerEpoch; j++) {
                 uint256 id = shareId(epoch, j, i);
-                uint256 balance = balanceOf(msg.sender, id) - blockedForUser[msg.sender][id];
+                uint256 balance = balanceOf(user, id);
                 if (balance > 0) {
                     totalPayout += (balance * gammaPow[j - 1] * epochData[epoch].basePrice[i] / uint256(decQ)) / RANGE;
-                    _burnToken(msg.sender, balance, id);
+                    _burn(user, id, balance);
                 }
             }
         }
@@ -323,77 +336,19 @@ contract Dynamica is
         if (totalPayout == 0) {
             revert NothingToRedeem();
         }
+      
+        IERC20(collateralToken).safeTransfer(user, totalPayout);
 
-        IERC20(collateralToken).safeTransfer(msg.sender, totalPayout);
-
-        emit PayoutRedemption(msg.sender, collateralToken, question, totalPayout);
+        emit PayoutRedemption(user, collateralToken, question, totalPayout);
     }
 
     /**
      * @notice Claims tokens for a new epoch based on blocked tokens from previous epoch
-     * @param user The address of the user to claim for
+     * @param epoch The epoch number to redeem for
      * @dev Converts blocked tokens from previous epoch to new epoch tokens based on base prices
      */
-    function claimForNewEpoch(address user) external nonReentrant {
-        uint256 totalPayout = 0;
-        int256[] memory deltaOutcomeAmounts = new int256[](outcomeSlotCount);
-        uint256 periodsPerEpoch = epochDuration / periodDuration;
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
-            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
-                uint256 id = shareId(currentEpochNumber - 1, j, i);
-                uint256 balance = blockedForUser[user][id];
-                blockedForUser[user][id] = 0;
-                blockedForEpoch[id] -= balance;
-                totalPayout +=
-                    (balance * gammaPow[j - 1] * epochData[currentEpochNumber - 1].basePrice[i] / uint256(decQ)) / RANGE;
-            }
-            if (totalPayout > 0 && epochData[currentEpochNumber].basePrice[i] > 0) {
-                deltaOutcomeAmounts[i] =
-                    int256((totalPayout * uint256(decQ)) / epochData[currentEpochNumber].basePrice[i]);
-            } else {
-                deltaOutcomeAmounts[i] = 0;
-            }
-            totalPayout = 0;
-        }
-        _updateUserShares(user, deltaOutcomeAmounts, true);
-
-        emit ClaimForNewEpoch(user, deltaOutcomeAmounts, currentEpochNumber, currentPeriodNumber);
-    }
-
-    /**
-     * @notice Unblocks tokens for a given epoch and period
-     * @param deltaOutcomeAmounts_ Array of token amount changes for each outcome
-     * @param epochs Array of epochs
-     * @param periods Array of periods
-     * @dev Transfers blocked tokens from contract to user
-     */
-    function unblockTokens(uint256[][] memory deltaOutcomeAmounts_, uint32[] memory epochs, uint32[] memory periods)
-        external
-        nonReentrant
-    {
-        uint256 length = epochs.length;
-        if (length != deltaOutcomeAmounts_.length) {
-            revert InvalidLength(length, deltaOutcomeAmounts_.length);
-        }
-        if (length != epochs.length) {
-            revert InvalidLength(length, epochs.length);
-        }
-        if (length != periods.length) {
-            revert InvalidLength(length, periods.length);
-        }
-        uint256[] memory ids = new uint256[](outcomeSlotCount);
-        for (uint256 i = 0; i < length; i++) {
-            for (uint256 j = 0; j < outcomeSlotCount; j++) {
-                ids[j] = shareId(epochs[i], periods[i], j);
-                if (blockedForUser[msg.sender][ids[j]] < deltaOutcomeAmounts_[i][j]) {
-                    revert InsufficientBalance(blockedForUser[msg.sender][ids[j]], deltaOutcomeAmounts_[i][j]);
-                }
-                blockedForUser[msg.sender][ids[j]] -= deltaOutcomeAmounts_[i][j];
-                blockedForEpoch[ids[j]] -= deltaOutcomeAmounts_[i][j];
-            }
-            _safeBatchTransferFrom(address(this), msg.sender, ids, deltaOutcomeAmounts_[i], "");
-            emit TokensUnblocked(msg.sender, deltaOutcomeAmounts_[i], epochs[i], periods[i]);
-        }
+    function redeemBlockedTokens(uint32 epoch) external epochResolved(epoch+1) nonReentrant {
+        _redeemBlocked(msg.sender, epoch, msg.sender);
     }
 
     /**
@@ -470,7 +425,7 @@ contract Dynamica is
      * @return The supply for the outcome token per epoch
      */
     function outcomeTokenSuppliesPerEpoch(uint256 epoch, uint256 outcomeSlot) public view returns (uint256) {
-        uint256 amount = 0;
+        uint256 amount;
         for (uint256 j = 1; j <= currentPeriodNumber; j++) {
             amount += totalSupply(shareId(epoch, j, outcomeSlot));
         }
@@ -526,13 +481,14 @@ contract Dynamica is
      * @param deltaOutcomeAmounts_ Array of token amount changes
      * @dev Reverts if user does not have enough shares
      */
-    function _validateSellAmounts(int256[] memory deltaOutcomeAmounts_, bool isRollover) private view {
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+    function _validateSellAmounts(int256[] calldata deltaOutcomeAmounts_, address user, bool isRollover) internal view {
+        uint256 slots = outcomeSlotCount;
+        for (uint256 i = 0; i < slots; ++i) {
             uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
             if (deltaOutcomeAmounts_[i] < 0) {
-                uint256 balance = balanceOf(msg.sender, id);
+                uint256 balance = balanceOf(user, id);
                 if (isRollover) {
-                    balance = blockedForUser[msg.sender][id];
+                    balance = blockedForUser[user][id];
                 }
                 uint256 amount = uint256(-deltaOutcomeAmounts_[i]);
                 if (balance < amount) {
@@ -544,23 +500,22 @@ contract Dynamica is
 
     /**
      * @notice Handles payment processing for trades including fee calculation
-     * @param netCost The net cost of the trade
+     * @param normalizedCost Absolute trade amount expressed in collateral units
      * @param isBuy True if the user is buying, false if selling
      * @return feeAmount The fee amount charged
      */
-    function _handleTradePayment(uint256 netCost, bool isBuy) private returns (uint256 feeAmount) {
+    function _handleTradePayment(uint256 normalizedCost, address user, bool isBuy) internal returns (uint256 feeAmount) {
         if (isBuy) {
-            uint256 shouldPay = (netCost * RANGE) / (RANGE - fee);
-            feeAmount = shouldPay - netCost;
+            uint256 shouldPay = (normalizedCost * RANGE) / (RANGE - fee);
+            feeAmount = shouldPay - normalizedCost;
             feeReceived += feeAmount;
-            epochData[currentEpochNumber].funding += netCost;
-            IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), shouldPay);
+            epochData[currentEpochNumber].funding += normalizedCost;
+            IERC20(collateralToken).safeTransferFrom(user, address(this), shouldPay);
         } else {
-            feeAmount = (netCost * fee) / RANGE;
+            feeAmount = (normalizedCost * fee) / RANGE;
             feeReceived += feeAmount;
-            uint256 payoutAmount = netCost - feeAmount;
-            epochData[currentEpochNumber].funding -= netCost;
-            IERC20(collateralToken).safeTransfer(msg.sender, payoutAmount);
+            epochData[currentEpochNumber].funding -= normalizedCost;
+            IERC20(collateralToken).safeTransfer(user, normalizedCost - feeAmount);
         }
     }
 
@@ -571,34 +526,35 @@ contract Dynamica is
      * @param isRollover Whether this is a rollover trade
      * @dev Mints or burns outcome tokens as needed
      */
-    function _updateUserShares(address user, int256[] memory deltaOutcomeAmounts_, bool isRollover) private {
-        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+    function _updateUserShares(address user, int256[] calldata deltaOutcomeAmounts_, bool isRollover) internal {
+        uint256 slots = outcomeSlotCount;
+        for (uint256 i = 0; i < slots; ++i) {
             uint256 id = shareId(currentEpochNumber, currentPeriodNumber, i);
             if (deltaOutcomeAmounts_[i] > 0) {
                 if (isRollover) {
                     blockedForUser[user][id] += uint256(deltaOutcomeAmounts_[i]);
                     blockedForEpoch[id] += uint256(deltaOutcomeAmounts_[i]);
-                    _mintToken(address(this), uint256(deltaOutcomeAmounts_[i]), id);
+                    _mint(address(this), id, uint256(deltaOutcomeAmounts_[i]), "");
                 } else {
-                    _mintToken(user, uint256(deltaOutcomeAmounts_[i]), id);
+                    _mint(user, id, uint256(deltaOutcomeAmounts_[i]), "");
                 }
             } else if (deltaOutcomeAmounts_[i] < 0) {
                 if (isRollover) {
                     blockedForUser[user][id] -= uint256(-deltaOutcomeAmounts_[i]);
                     blockedForEpoch[id] -= uint256(-deltaOutcomeAmounts_[i]);
-                    _burnToken(address(this), uint256(-deltaOutcomeAmounts_[i]), id);
+                    _burn(address(this), id, uint256(-deltaOutcomeAmounts_[i]));
                 } else {
-                    _burnToken(user, uint256(-deltaOutcomeAmounts_[i]), id);
+                    _burn(user, id, uint256(-deltaOutcomeAmounts_[i]));
                 }
             }
         }
     }
 
-    function _closeEpoch(uint256[] calldata payouts) private {
+    function _closeEpoch(uint256[] calldata payouts) internal {
         uint256 _outcomeSlotCount = payouts.length;
         uint256 totalPayout;
         uint256 totalPayoutRollover;
-
+        uint256 newTokenId;
         // Validate payout array length
         if (_outcomeSlotCount != outcomeSlotCount) {
             revert InvalidLength(_outcomeSlotCount, outcomeSlotCount);
@@ -615,75 +571,91 @@ contract Dynamica is
 
         uint256[] memory totalWeightedShares = new uint256[](_outcomeSlotCount);
         uint256 periodsPerEpoch = epochDuration / periodDuration;
-
+        uint256 totalPayoutRollover_i;
+        uint256 outcomeTokenAmount_i;
         for (uint256 i = 0; i < outcomeSlotCount; i++) {
             epochData[currentEpochNumber].payoutNumerators[i] = payouts[i];
             epochData[currentEpochNumber].basePrice[i] = (payouts[i] * uint256(decCollateral)) /  epochData[currentEpochNumber].payoutDenominator;
             for (uint256 j = 1; j <= periodsPerEpoch; j++) {
-                uint256 outcomeTokenAmountI = outcomeTokenSupplies(currentEpochNumber, j, i);
-                if (outcomeTokenAmountI != 0) {
-                    totalWeightedShares[i] += ((outcomeTokenAmountI * gammaPow[j - 1]) / RANGE);
-                }
-                uint256 tokenId = shareId(currentEpochNumber, j, i);
-                uint256 balance = blockedForEpoch[tokenId];
-                if (balance > 0) {
-                    totalPayoutRollover += (
-                        (balance * gammaPow[j - 1] * epochData[currentEpochNumber].basePrice[i] / uint256(decCollateral)) / RANGE
-                    );
-                }
-            }
-            totalPayoutRollover = totalPayoutRollover * uint256(decQ) / uint256(decCollateral);
-            if (totalWeightedShares[i] != 0) {
-                totalPayout += (
-                    (
-                        (totalWeightedShares[i] - epochData[currentEpochNumber].initialTokenSupply[i]) * payouts[i]
-                            * uint256(decQ)
-                    ) / payoutDenominator_
-                );
-            }
+                newTokenId = shareId(currentEpochNumber, j, i);
+                outcomeTokenAmount_i = outcomeTokenSupplies(currentEpochNumber, j, i) - blockedForEpoch[newTokenId];
 
-            epochData[currentEpochNumber + 1].initialTokenSupply[i] = ((epochData[currentEpochNumber].funding + totalPayoutRollover - totalPayout) * uint256(decCollateral) / epochData[currentEpochNumber].basePrice[i]) * uint256(decCollateral) / uint256(decQ);
- 
-            uint256 newTokenId = shareId(currentEpochNumber + 1, 1, i);
-            _mint(address(this), newTokenId, epochData[currentEpochNumber + 1].initialTokenSupply[i], "");
-            blockedForEpoch[newTokenId] += (totalPayoutRollover * uint256(decCollateral) / epochData[currentEpochNumber].basePrice[i]) * uint256(decQ) / uint256(decCollateral);
+                if (outcomeTokenAmount_i != 0) {
+                    totalWeightedShares[i] += (outcomeTokenAmount_i * gammaPow[j - 1]);
+                }
+                totalPayoutRollover_i += blockedForEpoch[newTokenId]; 
+                _burn(address(this), newTokenId, blockedForEpoch[newTokenId]);
+            }
+            totalPayoutRollover += (totalPayoutRollover_i - blockedForUser[address(this)][shareId(currentEpochNumber, 1, i)]) * epochData[currentEpochNumber].basePrice[i]; // decQ * decColl   
+            totalPayoutRollover_i = 0;
+            totalWeightedShares[i] /= RANGE;
+            totalPayout += totalWeightedShares[i] * epochData[currentEpochNumber].basePrice[i];
         }
+        totalPayoutRollover /= uint256(decQ);
+        totalPayout /= uint256(decQ);
 
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            newTokenId = shareId(currentEpochNumber + 1, 1, i);
+            blockedForEpoch[newTokenId] += totalPayoutRollover * uint256(decQ) / epochData[currentEpochNumber].basePrice[i];
+            _mint(address(this), newTokenId, blockedForEpoch[newTokenId], "");
+        }
         uint32 now32 = uint32(block.timestamp);
         epochData[currentEpochNumber].fundingForRollover = totalPayoutRollover;
+        epochData[currentEpochNumber].totalPayout = totalPayout;
+
         currentEpochNumber += 1;
         currentPeriodNumber = 1;
         epochData[currentEpochNumber].epochStart = now32;
         epochData[currentEpochNumber].funding =
-            epochData[currentEpochNumber - 1].funding + totalPayoutRollover - totalPayout;
-
+            epochData[currentEpochNumber - 1].funding - totalPayout;
         periodStart = now32;
-        epochData[currentEpochNumber].totalPayout = totalPayout;
     }
 
     /**
-     * @notice Burns tokens from a user
-     * @param from Address to burn from
-     * @param burnAmount Amount to burn
-     * @param id The token id
-     * @dev Emits TokenBurned event
+     * @notice Redeems blocked tokens for a user
+     * @param user Address of the user
+     * @param epoch Epoch number
+     * @param to Address to redeem to
+     * @dev Emits Redeemed event
      */
-    function _burnToken(address from, uint256 burnAmount, uint256 id) internal {
-        _burn(from, id, burnAmount);
-        emit TokenBurned(from, id, burnAmount);
+    function _redeemBlocked(address user, uint32 epoch, address to) internal {
+        uint256 totalPayout;
+        uint256 id;
+        uint256 balance;
+        uint256[] memory deltaOutcomeAmounts = new uint256[](outcomeSlotCount);
+        uint256 periodsPerEpoch = epochDuration / periodDuration;        
+
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            for (uint256 j = 1; j <= periodsPerEpoch; j++) {
+                id = shareId(epoch, j, i);
+                balance = blockedForUser[user][id];
+                blockedForUser[user][id] = 0;
+                deltaOutcomeAmounts[i] += balance;
+            }
+        }
+
+        for (uint256 e = epoch; e < currentEpochNumber; e++) {
+            for (uint256 i = 0; i < outcomeSlotCount; i++) {
+                totalPayout += ((deltaOutcomeAmounts[i] * epochData[e].basePrice[i])/uint256(decQ)); // decQ * decColl
+            }
+
+            if(totalPayout > 0) {
+                for (uint256 i = 0; i < outcomeSlotCount; i++) {
+                    // decQ * decColl / decColl
+                    deltaOutcomeAmounts[i] = totalPayout * uint256(decQ) / epochData[e].basePrice[i];
+                }  
+                if (e != currentEpochNumber - 1) totalPayout = 0;
+            }      
+        }
+        for (uint256 i = 0; i < outcomeSlotCount; i++) {
+            id = shareId(currentEpochNumber, 1, i);
+            blockedForEpoch[id] -= deltaOutcomeAmounts[i];
+            _burn(address(this), id, deltaOutcomeAmounts[i]);
+        }
+        IERC20(collateralToken).safeTransfer(to, totalPayout);
+        emit ClaimForNewEpoch(user, deltaOutcomeAmounts, currentEpochNumber, currentPeriodNumber);
     }
 
-    /**
-     * @notice Mints tokens to a user
-     * @param to Address to mint to
-     * @param mintAmount Amount to mint
-     * @param id The token id
-     * @dev Emits TokenMinted event
-     */
-    function _mintToken(address to, uint256 mintAmount, uint256 id) internal {
-        _mint(to, id, mintAmount, "");
-        emit TokenMinted(to, id, mintAmount);
-    }
 
     /**
      * @notice Calculates the payout denominator from payout numerators
@@ -730,13 +702,14 @@ contract Dynamica is
      * @dev Emits SendMarketsSharesToOwner event
      */
     function _sendMarketsSharesToOwner() private {
-        uint256 returnToOwner = epochData[currentEpochNumber].funding - epochData[currentEpochNumber].totalPayout;
+        uint256 returnToOwner = epochData[currentEpochNumber].funding - epochData[currentEpochNumber-1].fundingForRollover;
         if (IERC20(collateralToken).balanceOf(address(this)) < returnToOwner) {
             revert InsufficientBalance(IERC20(collateralToken).balanceOf(address(this)), returnToOwner);
         }
         IERC20(collateralToken).safeTransfer(owner(), returnToOwner);
         emit SendMarketsSharesToOwner(block.timestamp, returnToOwner);
     }
+
 
     // ============ Override Functions ============
 
@@ -786,7 +759,6 @@ contract Dynamica is
         outcome = id % outcomeSlotCount;
 
         // Decode period and epoch from periodOffset
-        // periodOffset = (epoch - 1) * periodsPerEpoch * outcomeSlotCount + (period - 1) * outcomeSlotCount
         uint256 periodOffset = id - outcome;
         uint256 periodIndex = periodOffset / outcomeSlotCount;
 
