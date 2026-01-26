@@ -165,7 +165,7 @@ interface IDynamica {
         /// @notice Fee in basis points
         uint64 fee;
         /// @notice Alpha parameter for LMSR
-        int256 alpha;
+        uint8 alpha;
         /// @notice Exponential limit
         int256 expLimit;
         /// @notice Expiration time
@@ -180,20 +180,36 @@ interface IDynamica {
 
     /// @notice Structure to store epoch-specific data
     struct EpochData {
-        /// @notice Start timestamp of the epoch
-        uint32 epochStart;
         /// @notice Payout denominator for calculating final payouts
         uint256 payoutDenominator;
         /// @notice Funding for the epoch
         uint256 funding;
-        /// @notice Funding for rollover
-        uint256 fundingForRollover;
-        /// @notice Total payout
-        uint256 totalPayout;
         /// @notice Array of base prices for each outcome
         uint256[10] basePrice;
         /// @notice Array of payout numerators for each outcome
         uint256[10] payoutNumerators;
+    }
+
+    /// @notice Context structure for epoch calculations
+    struct EpochContext {
+        uint32 currentEpoch;
+        uint256 payoutDenominator;
+        uint128 decCollateral;
+        uint8 slotCount;
+    }
+
+    /// @notice Rollover data structure for minting rollover shares
+    struct RolloverData {
+        uint32 newEpoch;
+        uint32 currentEpoch;
+        uint256 totalPayoutRollover;
+        uint128 decQ;
+    }
+
+    /// @notice Result structure for processing epoch periods
+    struct CloseEpochResult {
+        uint256 totalPayout;
+        uint256 totalPayoutRollover;
     }
 
     // ============ State Variables ============
@@ -208,28 +224,11 @@ interface IDynamica {
     function collateralToken() external view returns (address);
     /// @notice Returns the market question
     function question() external view returns (string memory);
-    /// @notice Returns the fee
-    function fee() external view returns (uint64);
-    /// @notice Returns the total fees received
-    function feeReceived() external view returns (uint256);
     /// @notice Returns the oracle manager address
     function oracleManager() external view returns (address);
-    /// @notice Returns the number of outcome slots
-    function outcomeSlotCount() external view returns (uint256);
     /// @notice Returns whether the current epoch should be checked
     function checkEpoch() external view returns (bool);
-    /// @notice Returns the decimals for outcome tokens
-    function decimals() external view returns (uint8);
-    /// @notice Returns the current epoch number
-    function currentEpochNumber() external view returns (uint32);
-    /// @notice Returns the current period number
-    function currentPeriodNumber() external view returns (uint32);
-    /// @notice Returns the expiration epoch
-    function expirationEpoch() external view returns (uint32);
-    /// @notice Returns the epoch duration in seconds
-    function epochDuration() external view returns (uint32);
-    /// @notice Returns the period duration in seconds
-    function periodDuration() external view returns (uint32);
+
 
     // ============ External Functions ============
 

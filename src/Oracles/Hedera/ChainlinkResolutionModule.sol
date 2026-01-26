@@ -62,7 +62,6 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
     /**
      * @notice Initializes the Chainlink resolution module
      * @param _marketResolutionManager Address of the market resolution manager
-     * @dev See {IMarketResolutionModule} for interface documentation
      */
     function initialize(address _marketResolutionManager) public initializer {
         if (_marketResolutionManager == address(0)) {
@@ -73,11 +72,10 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
 
     /**
      * @notice Resolves a market using Chainlink price feed data
-     * @dev Decodes resolutionData, fetches Chainlink data, and calculates payout ratio
      * @param outcomeSlotCount Number of possible outcomes
      * @param resolutionData Encoded ChainlinkConfig containing price feed addresses and parameters
      * @return payouts Array of payout numerators that sum to 1e18
-     * @dev See {IMarketResolutionModule-resolveMarket}
+     * @dev Decodes resolutionData, fetches Chainlink data, validates staleness, and calculates payout ratios
      */
     function resolveMarket(uint256 outcomeSlotCount, bytes calldata resolutionData)
         external
@@ -208,9 +206,9 @@ contract ChainlinkResolutionModule is Initializable, IMarketResolutionModule {
 
     /**
      * @notice Gets current market data without resolving
+     * @param questionId The question/market ID (unused in this implementation)
      * @return payouts Array of payout numerators for each outcome
-     * @dev See {IMarketResolutionModule-getCurrentMarketData}
-     *      Note: questionId parameter is unused in this implementation
+     * @dev Returns mock data for testing purposes
      */
     function getCurrentMarketData(bytes32 /* questionId */ ) external pure returns (uint256[] memory payouts) {
         payouts = new uint256[](2);

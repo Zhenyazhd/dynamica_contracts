@@ -66,10 +66,12 @@ library DataLayoutLibrary {
     uint8 internal constant FLAG_UPDATE_DECIMALS           = 1 << 3; // 0x08
     uint8 internal constant FLAG_UPDATE_OUTCOME_SLOT_COUNT = 1 << 4; // 0x10
     uint8 internal constant FLAG_UPDATE_FEE_RECEIVED       = 1 << 5; // 0x20
+    uint8 internal constant FLAG_UPDATE_ALPHA              = 1 << 6; // 0x40
 
     // Structure for batch config updates
     struct ConfigUpdate {
-        uint16 version;
+        uint8 version;
+        uint8 alpha;
         uint64 fee;
         uint32 gamma;
         uint8 decimals;
@@ -78,26 +80,29 @@ library DataLayoutLibrary {
     }
 
     /*  
-        | bits 0–15     | version          (uint16)  |
-        | bits 16–79    | fee              (uint64)  |
-        | bits 80–111   | gamma            (uint32)  |
-        | bits 112–119  | decimals         (uint8)   |
-        | bits 120–127  | outcomeSlotCount (uint8)   |
+        | bits 0–7      | version          (uint8)   |
+        | bits 8–15     | alpha            (uint8)   |
+        | bits 16–23    | decimals         (uint8)   |
+        | bits 24–31    | outcomeSlotCount (uint8)   |
+        | bits 32–95    | fee              (uint64)  |
+        | bits 96–127   | gamma            (uint32)  |
         | bits 128–255  | feeReceived      (uint128) |
     */
 
     uint256 internal constant SHIFT_VERSION            = 0;
-    uint256 internal constant SHIFT_FEE                = 16;
-    uint256 internal constant SHIFT_GAMMA              = 80;
-    uint256 internal constant SHIFT_DECIMALS           = 112;
-    uint256 internal constant SHIFT_OUTCOME_SLOT_COUNT = 120;
+    uint256 internal constant SHIFT_ALPHA              = 8;
+    uint256 internal constant SHIFT_DECIMALS           = 16;
+    uint256 internal constant SHIFT_OUTCOME_SLOT_COUNT = 24;
+    uint256 internal constant SHIFT_FEE                = 32;
+    uint256 internal constant SHIFT_GAMMA              = 96;
     uint256 internal constant SHIFT_FEE_RECIEVED       = 128;
 
-    uint256 internal constant MASK_VERSION            = MASK_16 << SHIFT_VERSION;
-    uint256 internal constant MASK_FEE                = MASK_64 << SHIFT_FEE;
-    uint256 internal constant MASK_GAMMA              = MASK_32 << SHIFT_GAMMA;  
+    uint256 internal constant MASK_VERSION            = MASK_8 << SHIFT_VERSION;
+    uint256 internal constant MASK_ALPHA              = MASK_8 << SHIFT_ALPHA;
     uint256 internal constant MASK_DECIMALS           = MASK_8 << SHIFT_DECIMALS;
     uint256 internal constant MASK_OUTCOME_SLOT_COUNT = MASK_8 << SHIFT_OUTCOME_SLOT_COUNT;
+    uint256 internal constant MASK_FEE                = MASK_64 << SHIFT_FEE;
+    uint256 internal constant MASK_GAMMA              = MASK_32 << SHIFT_GAMMA;  
     uint256 internal constant MASK_FEE_RECIEVED       = MASK_128 << SHIFT_FEE_RECIEVED;
 
     uint256 internal constant SHIFT_TOTAL_PAYOUT         = 0;
@@ -128,6 +133,29 @@ library DataLayoutLibrary {
             sstore(slot, data)
         }
     }
+
+    function _getStorageDataWithMask(bytes32 slot, uint256 mask, uint256 shift) internal view returns (uint256 data) {
+        assembly {
+            data := and(sload(slot), mask)
+            data := shr(shift, data)
+        }
+    }
+
+    /// @notice Sets a field in packed storage data
+    /// @param slot Storage slot to update
+    /// @param fieldMask Mask of the field to update (bits that belong to this field)
+    /// @param shift Shift amount for the field
+    /// @param data New value for the field
+    /// @dev This function clears the field (using ~fieldMask) and sets the new value
+    function _setStorageDataWithMask(bytes32 slot, uint256 fieldMask, uint256 shift, uint256 data) internal {
+        assembly {
+            let packedData := sload(slot)
+            packedData := and(packedData, not(fieldMask))
+            packedData := or(packedData, shl(shift, data))
+            sstore(slot, packedData)
+        }
+    }
+
 
     /// @notice Calculating the slot ID for Dex contract for single mapping at `slot_` for `key_`
     function calculateMapPackedEndEpochFundingSlot(bytes32 slot_, uint256 epoch) internal pure returns (bytes32) {
@@ -239,6 +267,10 @@ library DataLayoutLibrary {
         
         if ((flags & FLAG_UPDATE_OUTCOME_SLOT_COUNT) != 0) {
             packedConfig = (packedConfig & ~MASK_OUTCOME_SLOT_COUNT) | (uint256(update.outcomeSlotCount) << SHIFT_OUTCOME_SLOT_COUNT);
+        }
+        
+        if ((flags & FLAG_UPDATE_ALPHA) != 0) {
+            packedConfig = (packedConfig & ~MASK_ALPHA) | (uint256(update.alpha) << SHIFT_ALPHA);
         }
         
         if ((flags & FLAG_UPDATE_FEE_RECEIVED) != 0) {
